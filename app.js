@@ -528,6 +528,7 @@ function eventsOnDate(date, parentView = false) {
 }
 
 function holidayOnDate(date) {
+  if (typeof date !== "string" || date.length < 10) return "";
   const recurring = {
     "01-01": "신정", "03-01": "삼일절", "05-05": "어린이날", "06-06": "현충일",
     "08-15": "광복절", "10-03": "개천절", "10-09": "한글날", "12-25": "성탄절"
@@ -963,22 +964,23 @@ function getConfirmation(recordId, studentId) {
 }
 
 function renderModal() {
-  const content = {
-    bulkRecord: renderRecordForm("bulk"),
-    quickRecord: renderQuickRecordModal(),
-    aiAssist: renderAiAssistModal(),
-    editRecord: renderRecordForm("edit", toList(state.records).find(r => r.id === modal.recordId)),
-    studentForm: renderStudentForm(),
-    editStudentForm: renderStudentForm(toList(state.students).find(s => s.id === modal.studentId)),
-    teacherForm: renderTeacherForm(),
-    editTeacherForm: renderTeacherForm(toList(state.teachers).find(t => t.id === modal.teacherId)),
-    editScheduleForm: renderEditScheduleForm(toList(state.schedules).find(s => s.id === modal.scheduleId)),
-    periodManager: renderPeriodManager(),
-    periodForm: renderPeriodForm(),
-    scheduleForm: renderScheduleForm(),
-    academicEventForm: renderAcademicEventForm(),
-    calendarDay: renderCalendarDay()
-  }[modal.type];
+  const renderers = {
+    bulkRecord: () => renderRecordForm("bulk"),
+    quickRecord: () => renderQuickRecordModal(),
+    aiAssist: () => renderAiAssistModal(),
+    editRecord: () => renderRecordForm("edit", toList(state.records).find(r => r.id === modal.recordId)),
+    studentForm: () => renderStudentForm(),
+    editStudentForm: () => renderStudentForm(toList(state.students).find(s => s.id === modal.studentId)),
+    teacherForm: () => renderTeacherForm(),
+    editTeacherForm: () => renderTeacherForm(toList(state.teachers).find(t => t.id === modal.teacherId)),
+    editScheduleForm: () => renderEditScheduleForm(toList(state.schedules).find(s => s.id === modal.scheduleId)),
+    periodManager: () => renderPeriodManager(),
+    periodForm: () => renderPeriodForm(),
+    scheduleForm: () => renderScheduleForm(),
+    academicEventForm: () => renderAcademicEventForm(),
+    calendarDay: () => renderCalendarDay()
+  };
+  const content = renderers[modal.type]?.() || "";
   return `
     <div class="modal-backdrop">
       <section class="modal ${["bulkRecord", "editRecord"].includes(modal.type) ? "record-modal" : ""}">
