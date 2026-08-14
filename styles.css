@@ -281,6 +281,74 @@ label {
   color: var(--muted);
   font-size: 11px;
 }
+.progress-student-button {
+  height: auto;
+  min-height: 112px;
+  align-content: start;
+  padding: 12px;
+}
+.study-progress-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.study-progress {
+  display: grid;
+  gap: 3px;
+}
+.study-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink) !important;
+}
+.study-progress-head b { font-size: 11px; }
+.study-progress-head em { color: var(--blue); font-style: normal; font-weight: 800; }
+.study-progress-track {
+  display: block;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7edf5;
+}
+.study-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #79aef5, var(--blue));
+}
+.study-progress small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field-title {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.material-check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 190px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+}
+.material-check-grid label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px;
+  font-size: 12px;
+}
+.material-check-grid input { width: auto; }
 .list {
   display: grid;
   gap: 10px;
