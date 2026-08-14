@@ -349,6 +349,37 @@ label {
   font-size: 12px;
 }
 .material-check-grid input { width: auto; }
+.material-plan-list {
+  display: grid;
+  gap: 7px;
+  max-height: 330px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+}
+.material-plan-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.4fr) minmax(86px, .7fr) minmax(86px, .7fr);
+  gap: 8px;
+  align-items: center;
+}
+.material-plan-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--soft);
+  font-size: 12px;
+}
+.material-plan-check input { width: auto; }
+@media (max-width: 640px) {
+  .material-plan-row { grid-template-columns: 1fr 1fr; }
+  .material-plan-check { grid-column: 1 / -1; }
+}
 .list {
   display: grid;
   gap: 10px;

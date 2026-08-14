@@ -168,7 +168,18 @@ function normalizeState(value) {
     ...student
   })).map(student => ({
     ...student,
-    materials: [...new Set(toList(student.materials).filter(Boolean))]
+    studyPlans: (toList(student.studyPlans).length ? student.studyPlans : toList(student.materials).map(material => ({
+      material,
+      grade: student.schoolYear || "",
+      term: student.studyTerm || "1학기"
+    }))).filter(plan => plan && plan.material).map(plan => ({
+      material: String(plan.material),
+      grade: GRADES.includes(plan.grade) ? plan.grade : (student.schoolYear || ""),
+      term: TERMS.includes(plan.term) ? plan.term : "1학기"
+    }))
+  })).map(student => ({
+    ...student,
+    materials: [...new Set(toList(student.studyPlans).map(plan => plan.material).filter(Boolean))]
   }));
   next.units = next.units
     .map(unit => String(unit).replace(/연립일차부등식/g, "연립일차방정식"))
@@ -721,16 +732,17 @@ function curriculumUnits(grade, term) {
 }
 
 function renderStudentProgress(student) {
-  const materials = toList(student.materials).length ? student.materials : (student.currentMaterial ? [student.currentMaterial] : []);
-  const units = curriculumUnits(student.schoolYear, student.studyTerm || "1학기");
-  if (!materials.length || !units.length) return "";
-  return `<span class="study-progress-list">${materials.map(material => {
+  const plans = toList(student.studyPlans);
+  if (!plans.length) return "";
+  return `<span class="study-progress-list">${plans.map(plan => {
+    const material = plan.material;
+    const units = curriculumUnits(plan.grade, plan.term);
     const latest = toList(state.records)
       .filter(record => !record.hidden && record.material === material && toList(record.studentIds).includes(student.id) && units.includes(record.unit))
       .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
     const unitIndex = latest ? units.indexOf(latest.unit) : -1;
     const percent = unitIndex < 0 ? 0 : Math.round(((unitIndex + 1) / units.length) * 100);
-    return `<span class="study-progress"><span class="study-progress-head"><b>${escapeHtml(material)}</b><em>${percent}%</em></span><span class="study-progress-track"><i style="width:${percent}%"></i></span><small>${latest ? escapeHtml(latest.unit.replace(/^\S+\s+/, "")) : "시작 전"}</small></span>`;
+    return `<span class="study-progress"><span class="study-progress-head"><b>${escapeHtml(material)} · ${escapeHtml(plan.grade)} ${escapeHtml(plan.term)}</b><em>${percent}%</em></span><span class="study-progress-track"><i style="width:${percent}%"></i></span><small>${latest ? escapeHtml(latest.unit.replace(/^\S+\s+/, "")) : "시작 전"}</small></span>`;
   }).join("")}</span>`;
 }
 
@@ -1036,10 +1048,12 @@ function renderModal() {
 function renderRecordForm(mode, record = {}) {
   const studentIds = mode === "edit" ? toList(record.studentIds) : Array.from(selectedStudents);
   const selectedStudentData = studentIds.map(studentId => toList(state.students).find(student => student.id === studentId)).filter(Boolean);
-  const currentMaterials = selectedStudentData.flatMap(student => toList(student.materials).length ? student.materials : [student.currentMaterial]).filter(Boolean);
+  const selectedPlans = selectedStudentData.flatMap(student => toList(student.studyPlans));
+  const currentMaterials = selectedPlans.map(plan => plan.material).filter(Boolean);
   const defaultMaterial = record.material || (new Set(currentMaterials).size === 1 ? currentMaterials[0] : "");
   const materialOptions = currentMaterials.length ? [...new Set(currentMaterials)] : toList(state.materials);
-  const curriculumKeys = [...new Set(selectedStudentData.map(student => `${student.schoolYear}|${student.studyTerm || "1학기"}`))];
+  const matchingPlans = defaultMaterial ? selectedPlans.filter(plan => plan.material === defaultMaterial) : selectedPlans;
+  const curriculumKeys = [...new Set(matchingPlans.map(plan => `${plan.grade}|${plan.term}`))];
   const [recordGrade = "", recordTerm = ""] = curriculumKeys.length === 1 ? curriculumKeys[0].split("|") : [];
   const filteredUnits = curriculumUnits(recordGrade, recordTerm);
   const unitOptions = filteredUnits.length ? filteredUnits : toList(state.units);
@@ -1062,13 +1076,13 @@ function renderRecordForm(mode, record = {}) {
       </div>
       <label>수업집중도 <select name="focus"><option value="">선택 안 함</option>${FOCUS_LEVELS.map(v => `<option ${v === record.focus ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       <div class="grid two">
-        <label>교재명 <select name="material">
+        <label>교재명 <select name="material" data-action="selectRecordMaterial">
           <option value="">선택 안 함</option>
-          ${materialOptions.map(v => `<option value="${escapeHtml(v)}" ${v === defaultMaterial ? "selected" : ""}>${escapeHtml(v)}</option>`).join("")}
+          ${materialOptions.map(v => { const plan = selectedPlans.find(item => item.material === v); return `<option value="${escapeHtml(v)}" data-grade="${escapeHtml(plan?.grade || "")}" data-term="${escapeHtml(plan?.term || "")}" ${v === defaultMaterial ? "selected" : ""}>${escapeHtml(v)}${plan ? ` · ${escapeHtml(plan.grade)} ${escapeHtml(plan.term)}` : ""}</option>`; }).join("")}
         </select></label>
         <label>교재 직접입력 <input name="materialCustom" value="" placeholder="목록에 없으면 입력" /></label>
       </div>
-      <label>단원명 <select name="unit"><option value="">선택 안 함</option>${unitOptions.map(v => `<option value="${escapeHtml(v)}" ${v === record.unit ? "selected" : ""}>${escapeHtml(v.replace(/^\S+\s+/, ""))}</option>`).join("")}</select></label>
+      <label>단원명 <select name="unit" data-record-unit><option value="">선택 안 함</option>${unitOptions.map(v => `<option value="${escapeHtml(v)}" ${v === record.unit ? "selected" : ""}>${escapeHtml(v.replace(/^\S+\s+/, ""))}</option>`).join("")}</select></label>
       <div class="muted small">${recordGrade ? `${escapeHtml(recordGrade)} · ${escapeHtml(recordTerm)} 단원만 표시됩니다.` : "선택 학생의 학년·학기가 같으면 해당 단원만 표시됩니다."}</div>
       <label>수업 내용 <textarea name="content" data-common-field="content" placeholder="오늘 진행한 내용을 짧게 입력">${escapeHtml(record.content || "")}</textarea></label>
       <label>오늘의 과제 <textarea name="assignment" data-common-field="assignment" placeholder="예: p.28~31 대표유형, 오답노트 3문항">${escapeHtml(record.assignment || "")}</textarea></label>
@@ -1195,7 +1209,7 @@ function renderStudentForm(student = null) {
   const slots = student ? toList(state.schedules).filter(item => item.studentId === student.id).map(item => ({ day: item.day, period: item.period })) : toList(modal.scheduleSlots);
   const existingSchedules = student ? toList(state.schedules).filter(item => item.studentId === student.id) : [];
   const teacherIds = [...new Set(existingSchedules.flatMap(item => toList(item.teacherIds)))];
-  const selectedMaterials = student ? (toList(student.materials).length ? student.materials : [student.currentMaterial].filter(Boolean)) : [];
+  const studyPlans = student ? toList(student.studyPlans) : [];
   return `
     <form class="stack" data-form="${student ? "studentEdit" : "student"}">
       <div class="between"><h2 class="section-title">${student ? "학생 수정" : "학생 등록"}</h2><button type="button" data-action="closeModal">닫기</button></div>
@@ -1214,12 +1228,18 @@ function renderStudentForm(student = null) {
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리 자동 생성" /></label>
       <label>비밀번호 <input name="password" value="${escapeHtml(student?.password || "")}" placeholder="비워두면 전화번호 뒤 4자리" /></label>
       <section class="panel stack curriculum-setup">
-        <div><strong>학습 교재와 교육과정</strong><div class="muted small">교재를 여러 권 체크할 수 있습니다.</div></div>
-        <div class="grid two">
-          <label>학기 <select name="studyTerm">${TERMS.map(term => `<option ${term === (student?.studyTerm || "1학기") ? "selected" : ""}>${term}</option>`).join("")}</select></label>
-          <div><span class="field-title">교재 다중 선택</span><div class="material-check-grid">${toList(state.materials).map(v => `<label><input type="checkbox" name="materials" value="${escapeHtml(v)}" ${selectedMaterials.includes(v) ? "checked" : ""} />${escapeHtml(v)}</label>`).join("")}</div></div>
-        </div>
-        <div class="muted small">학년은 위에서 선택합니다. 학습기록 작성 시 해당 학년·학기의 단원만 검색됩니다.</div>
+        <div><strong>학습 교재와 교육과정</strong><div class="muted small">각 교재마다 실제로 공부하는 학년과 학기를 따로 지정합니다.</div></div>
+        <div class="material-plan-list">${toList(state.materials).map((material, index) => {
+          const plan = studyPlans.find(item => item.material === material);
+          const planGrade = plan?.grade || student?.schoolYear || "";
+          const planTerm = plan?.term || "1학기";
+          return `<div class="material-plan-row" data-material-row>
+            <label class="material-plan-check"><input type="checkbox" name="materials" value="${escapeHtml(material)}" ${plan ? "checked" : ""} />${escapeHtml(material)}</label>
+            <select name="materialGrade_${index}" aria-label="${escapeHtml(material)} 교재 학년"><option value="">학년</option>${GRADES.map(grade => `<option ${grade === planGrade ? "selected" : ""}>${grade}</option>`).join("")}</select>
+            <select name="materialTerm_${index}" aria-label="${escapeHtml(material)} 교재 학기">${TERMS.map(term => `<option ${term === planTerm ? "selected" : ""}>${term}</option>`).join("")}</select>
+          </div>`;
+        }).join("")}</div>
+        <div class="muted small">예: 학생 학년은 초5, 디딤돌은 초6 1학기, 쎈은 중1 1학기로 각각 설정할 수 있습니다.</div>
       </section>
       <section class="panel stack"><div><strong>정규 수업 시간표</strong><div class="muted small">학생 등록과 동시에 요일과 교시를 선택합니다.</div></div>
         <div class="weekly-period-grid">${DAYS.map(day => `<div class="day-column"><div class="day-title">${day}</div>${periodOptions().map(period => `<button type="button" class="${slots.some(slot => slot.day === day && slot.period === period) ? "selected" : ""}" data-action="pickStudentFormSlot" data-day="${day}" data-period-name="${escapeHtml(period)}">${escapeHtml(period)}</button>`).join("")}</div>`).join("")}</div>
@@ -1697,6 +1717,17 @@ function handleGlobalInput(event) {
     return;
   }
 
+  const recordMaterial = event.target.closest("select[data-action='selectRecordMaterial']");
+  if (recordMaterial) {
+    const selectedOption = recordMaterial.selectedOptions[0];
+    const units = curriculumUnits(selectedOption?.dataset.grade || "", selectedOption?.dataset.term || "");
+    const unitSelect = recordMaterial.closest("form")?.querySelector("select[data-record-unit]");
+    if (unitSelect) {
+      unitSelect.replaceChildren(new Option("선택 안 함", ""), ...units.map(unit => new Option(unit.replace(/^\S+\s+/, ""), unit)));
+    }
+    return;
+  }
+
   const search = event.target.closest("input[data-action='searchStudent'], input[data-action='searchCalendarStudent']");
   if (!search) return;
   if (event.isComposing || event.inputType === "insertCompositionText") return;
@@ -1879,6 +1910,9 @@ function saveRecord(mode, data) {
       if (student) {
         student.currentMaterial = material;
         student.materials = [...new Set([...toList(student.materials), material])];
+        if (!toList(student.studyPlans).some(plan => plan.material === material)) {
+          student.studyPlans = [...toList(student.studyPlans), { material, grade: student.schoolYear || "", term: "1학기" }];
+        }
       }
     });
     return;
@@ -1915,6 +1949,9 @@ function saveRecord(mode, data) {
       if (student) {
         student.currentMaterial = material;
         student.materials = [...new Set([...toList(student.materials), material])];
+        if (!toList(student.studyPlans).some(plan => plan.material === material)) {
+          student.studyPlans = [...toList(student.studyPlans), { material, grade: student.schoolYear || "", term: "1학기" }];
+        }
       }
     }
   });
@@ -1932,8 +1969,23 @@ function readStudentScheduleForm(form) {
   return { slots, teacherIds };
 }
 
-function readStudentMaterials(form) {
-  return [...new Set(new FormData(form).getAll("materials").map(value => String(value).trim()).filter(Boolean))];
+function readStudentPlans(form) {
+  const plans = [];
+  let missingGrade = false;
+  form.querySelectorAll("[data-material-row]").forEach(row => {
+    const checkbox = row.querySelector("input[name='materials']");
+    if (!checkbox?.checked) return;
+    const selects = row.querySelectorAll("select");
+    const grade = selects[0]?.value || "";
+    const term = selects[1]?.value || "1학기";
+    if (!grade) { missingGrade = true; return; }
+    plans.push({ material: checkbox.value, grade, term });
+  });
+  if (missingGrade) {
+    showMessage("선택한 교재마다 교재 학년을 지정해주세요.");
+    return null;
+  }
+  return plans;
 }
 
 function syncStudentSchedules(studentId, scheduleData) {
@@ -1944,7 +1996,8 @@ function syncStudentSchedules(studentId, scheduleData) {
 function addStudent(form, data) {
   const scheduleData = readStudentScheduleForm(form);
   if (!scheduleData) return false;
-  const materials = readStudentMaterials(form);
+  const studyPlans = readStudentPlans(form);
+  if (!studyPlans) return false;
   const phone = formatPhone(data.phone);
   if (!isValidPhone(phone)) {
     showMessage("전화번호는 010-0000-0000 형식으로 입력해주세요.");
@@ -1971,9 +2024,9 @@ function addStudent(form, data) {
     phone,
     loginId,
     password: data.password?.trim() || tail,
-    studyTerm: TERMS.includes(data.studyTerm) ? data.studyTerm : "1학기",
-    materials,
-    currentMaterial: materials[0] || "",
+    studyPlans,
+    materials: studyPlans.map(plan => plan.material),
+    currentMaterial: studyPlans[0]?.material || "",
     active: true
   });
   syncStudentSchedules(studentId, scheduleData);
@@ -1982,7 +2035,8 @@ function addStudent(form, data) {
 function updateStudent(form, data) {
   const scheduleData = readStudentScheduleForm(form);
   if (!scheduleData) return false;
-  const materials = readStudentMaterials(form);
+  const studyPlans = readStudentPlans(form);
+  if (!studyPlans) return false;
   const student = toList(state.students).find(item => item.id === data.id);
   if (!student) return;
   const phone = formatPhone(data.phone);
@@ -2004,9 +2058,9 @@ function updateStudent(form, data) {
   student.phone = phone;
   student.loginId = loginId;
   student.password = data.password?.trim() || tail;
-  student.studyTerm = TERMS.includes(data.studyTerm) ? data.studyTerm : "1학기";
-  student.materials = materials;
-  student.currentMaterial = materials[0] || "";
+  student.studyPlans = studyPlans;
+  student.materials = studyPlans.map(plan => plan.material);
+  student.currentMaterial = studyPlans[0]?.material || "";
   syncStudentSchedules(student.id, scheduleData);
 }
 
