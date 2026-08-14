@@ -5,8 +5,9 @@ const SUPABASE_STATE_ID = "main";
 const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
 const DEFAULT_PERIODS = ["1교시", "2교시", "3교시", "4교시", "5교시", "6교시"];
 const ATTENDANCE = ["정시출석", "지각", "결석"];
-const HOMEWORK = ["100%", "75%", "50%", "25%", "0%"];
-const LESSON_TYPES = ["정규", "개별", "보충", "특강"];
+const HOMEWORK = ["완벽", "잘함", "보통", "부족", "미완료"];
+const FOCUS_LEVELS = ["매우 좋음", "좋음", "보통", "도움 필요"];
+const LESSON_TYPES = ["정규", "보충", "특강", "개별지도"];
 const DEFAULT_MATERIALS = ["디딤돌기본", "디딤돌응용", "쎈", "쎈B", "숨마쿰라우테", "개념원리", "백발백중", "일품수학", "블랙라벨", "학습지"];
 const DEFAULT_UNITS = [
   "초1-1 9까지의 수", "초1-1 여러 가지 모양", "초1-1 덧셈과 뺄셈", "초1-1 비교하기", "초1-1 50까지의 수",
@@ -33,6 +34,17 @@ const DEFAULT_UNITS = [
   "고3 미적분Ⅱ 수열의 극한", "고3 미적분Ⅱ 미분법", "고3 미적분Ⅱ 적분법"
 ];
 const GRADES = ["초1", "초2", "초3", "초4", "초5", "초6", "중1", "중2", "중3", "고1", "고2", "고3"];
+const KOREAN_HOLIDAYS = {
+  "2026-01-01": "신정",
+  "2026-02-16": "설날 연휴", "2026-02-17": "설날", "2026-02-18": "설날 연휴",
+  "2026-03-01": "삼일절", "2026-03-02": "대체공휴일",
+  "2026-05-05": "어린이날", "2026-05-24": "부처님오신날", "2026-05-25": "대체공휴일",
+  "2026-06-03": "전국동시지방선거", "2026-06-06": "현충일",
+  "2026-08-15": "광복절", "2026-08-17": "대체공휴일",
+  "2026-09-24": "추석 연휴", "2026-09-25": "추석", "2026-09-26": "추석 연휴",
+  "2026-10-03": "개천절", "2026-10-05": "대체공휴일", "2026-10-09": "한글날",
+  "2026-12-25": "성탄절"
+};
 
 const toList = (value) => Array.isArray(value) ? value : [];
 const todayIso = () => {
@@ -53,6 +65,7 @@ let modal = null;
 let searchRenderTimer = null;
 let listenersReady = false;
 let studentViewDate = todayIso();
+let calendarMonth = todayIso().slice(0, 7);
 let syncStatus = "로컬 저장";
 let remoteLoaded = false;
 let saveTimer = null;
@@ -91,7 +104,8 @@ function seedState() {
     materials: DEFAULT_MATERIALS,
     units: DEFAULT_UNITS,
     records: [],
-    confirmations: []
+    confirmations: [],
+    academicEvents: []
   };
 }
 
@@ -118,6 +132,7 @@ function normalizeState(value) {
   next.units = [...new Set([...DEFAULT_UNITS, ...next.units])];
   next.records = Array.isArray(next.records) ? next.records : [];
   next.confirmations = Array.isArray(next.confirmations) ? next.confirmations : [];
+  next.academicEvents = Array.isArray(next.academicEvents) ? next.academicEvents : [];
   next.periods = Array.isArray(next.periods) ? next.periods : fallback.periods;
 
   next.teachers = next.teachers.map(teacher => ({
@@ -146,6 +161,7 @@ function normalizeState(value) {
   next.students = next.students.map(student => ({
     active: true,
     schoolYear: "",
+    currentMaterial: "",
     ...student
   }));
   next.schedules = next.schedules.map(schedule => ({
@@ -165,6 +181,7 @@ function normalizeState(value) {
     lessonType: normalizeLessonType(record.lessonType),
     attendance: normalizeAttendance(record.attendance),
     homework: normalizeHomework(record.homework),
+    focus: FOCUS_LEVELS.includes(record.focus) ? record.focus : "",
     assignment: record.assignment || "",
     parentMessage: record.parentMessage || "",
     studentMessage: record.studentMessage || "",
@@ -176,6 +193,7 @@ function normalizeState(value) {
 
 function normalizeLessonType(value = "정규") {
   if (value === "대타") return "특강";
+  if (value === "개별") return "개별지도";
   return LESSON_TYPES.includes(value) ? value : "정규";
 }
 
@@ -184,15 +202,13 @@ function normalizeAttendance(value = "정시출석") {
   return ATTENDANCE.includes(value) ? value : "정시출석";
 }
 
-function normalizeHomework(value = "100%") {
+function normalizeHomework(value = "완벽") {
   const map = {
-    "클리어": "100%",
-    "오답수정중": "75%",
-    "과제진행중": "50%",
-    "과제안함": "0%"
+    "100%": "완벽", "75%": "잘함", "50%": "보통", "25%": "부족", "0%": "미완료",
+    "클리어": "완벽", "오답수정중": "잘함", "과제진행중": "보통", "과제안함": "미완료"
   };
   const next = map[value] || value;
-  return HOMEWORK.includes(next) ? next : "100%";
+  return HOMEWORK.includes(next) ? next : "완벽";
 }
 
 function saveState() {
@@ -490,6 +506,106 @@ function routeLabel() {
   return "학생/학부모 알림장";
 }
 
+function dateDayName(date) {
+  const day = new Date(`${date}T12:00:00`).getDay();
+  return DAYS[(day + 6) % 7];
+}
+
+function monthDates(month) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const first = new Date(year, monthNumber - 1, 1);
+  const start = new Date(year, monthNumber - 1, 1 - first.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  });
+}
+
+function eventsOnDate(date, parentView = false) {
+  return toList(state.academicEvents).filter(item => (!parentView || item.visibility !== "내부") && date >= item.startDate && date <= item.endDate);
+}
+
+function holidayOnDate(date) {
+  const recurring = {
+    "01-01": "신정", "03-01": "삼일절", "05-05": "어린이날", "06-06": "현충일",
+    "08-15": "광복절", "10-03": "개천절", "10-09": "한글날", "12-25": "성탄절"
+  };
+  return KOREAN_HOLIDAYS[date] || recurring[date.slice(5)] || "";
+}
+
+function schedulesOnDate(date, studentId = "", teacherId = "") {
+  if (eventsOnDate(date).some(item => ["휴원", "공휴일"].includes(item.type))) return [];
+  return toList(state.schedules).filter(item => item.day === dateDayName(date)
+    && (!studentId || item.studentId === studentId)
+    && (!teacherId || toList(item.teacherIds).includes(teacherId)));
+}
+
+function moveMonth(month, delta) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const date = new Date(year, monthNumber - 1 + delta, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function renderCalendar({ studentId = "", teacherId = "", parentView = false } = {}) {
+  const dates = monthDates(calendarMonth);
+  const recordScope = toList(state.records).filter(record => !record.hidden
+    && (!studentId || toList(record.studentIds).includes(studentId))
+    && (!teacherId || record.createdBy === teacherId));
+  return `
+    <section class="panel calendar-panel">
+      <div class="between calendar-head">
+        <button data-action="moveCalendarMonth" data-delta="-1">‹</button>
+        <div><h2 class="section-title">${Number(calendarMonth.slice(5))}월 수업 달력</h2><button class="link-button" data-action="goCalendarToday">오늘로</button></div>
+        <button data-action="moveCalendarMonth" data-delta="1">›</button>
+      </div>
+      <div class="calendar-weekdays">${["일","월","화","수","목","금","토"].map((day, index) => `<span class="${index === 0 ? "sunday" : index === 6 ? "saturday" : ""}">${day}</span>`).join("")}</div>
+      <div class="calendar-grid">
+        ${dates.map(date => {
+          const schedules = schedulesOnDate(date, studentId, teacherId);
+          const records = recordScope.filter(record => record.lessonDate === date);
+          const events = eventsOnDate(date, parentView);
+          const holiday = holidayOnDate(date);
+          const weekDay = new Date(`${date}T12:00:00`).getDay();
+          const outside = !date.startsWith(calendarMonth);
+          return `<button class="calendar-day ${outside ? "outside" : ""} ${date === todayIso() ? "today" : ""} ${weekDay === 0 ? "sunday" : weekDay === 6 ? "saturday" : ""}" data-action="openCalendarDay" data-date="${date}" data-student-id="${studentId}">
+            <span class="calendar-number">${Number(date.slice(8))}</span>
+            ${holiday ? `<span class="calendar-holiday">${escapeHtml(holiday)}</span>` : ""}
+            ${events.slice(0, 1).map(item => `<span class="calendar-event">${escapeHtml(item.title)}</span>`).join("")}
+            ${records.length ? `<span class="calendar-record">학습 ${records.length}</span>` : schedules.length ? `<span class="calendar-scheduled">수업 ${schedules.length}</span>` : ""}
+          </button>`;
+        }).join("")}
+      </div>
+      <div class="calendar-legend"><span><i class="dot scheduled"></i>예정 수업</span><span><i class="dot recorded"></i>학습 기록</span><span><i class="dot event"></i>학사일정</span></div>
+      ${parentView ? `<p class="policy-note">개인 사정으로 인한 결석은 보충 대상이 아닙니다. 학원에서 학습상 필요하다고 판단한 경우에만 별도로 안내드립니다.</p>` : ""}
+    </section>`;
+}
+
+function renderCalendarDay() {
+  const date = modal.date;
+  const studentId = modal.studentId || "";
+  const teacherId = session.type === "teacher" && !canAdmin() ? session.id : "";
+  const schedules = schedulesOnDate(date, studentId, teacherId);
+  const records = toList(state.records).filter(record => !record.hidden && record.lessonDate === date && (!studentId || toList(record.studentIds).includes(studentId)));
+  const events = eventsOnDate(date, session.type === "student");
+  const holiday = holidayOnDate(date);
+  const query = modal.query || "";
+  const scheduledIds = [...new Set(schedules.map(item => item.studentId))];
+  const searchedStudents = canTeacher() && query ? toList(state.students).filter(student => student.active && (`${student.name} ${student.loginId} ${student.phone}`).includes(query)).slice(0, 10) : [];
+  return `<div class="stack"><div class="between"><h2 class="section-title">${formatKoreanDate(date)}</h2><button data-action="closeModal">닫기</button></div>
+    ${holiday ? `<div class="event-card holiday-card"><strong>${escapeHtml(holiday)}</strong><span>대한민국 공휴일</span></div>` : ""}
+    ${events.map(item => `<div class="event-card"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.type)}${item.note ? ` · ${escapeHtml(item.note)}` : ""}</span></div>`).join("")}
+    ${canTeacher() ? `<section class="stack calendar-student-select"><div class="between"><div><strong>이 날짜의 학생 선택</strong><div class="muted small">예정 학생과 검색 학생을 함께 여러 명 선택할 수 있어요.</div></div><div class="toolbar">${scheduledIds.length ? `<button data-action="selectCalendarScheduled" data-ids="${escapeHtml(scheduledIds.join(","))}">예정 학생 전체 선택</button>` : ""}<span class="badge">${selectedStudents.size}명 선택</span></div></div>
+      ${scheduledIds.length ? `<div class="student-picker">${scheduledIds.map(idValue => { const student = state.students.find(item => item.id === idValue); return student ? `<button class="student-button ${selectedStudents.has(idValue) ? "selected" : ""}" data-action="pickCalendarStudent" data-id="${idValue}">${escapeHtml(student.name)}<span>예정 수업</span></button>` : ""; }).join("")}</div>` : `<div class="muted small">예정된 학생이 없습니다. 아래에서 다른 학생을 검색하세요.</div>`}
+      <input data-action="searchCalendarStudent" value="${escapeHtml(query)}" placeholder="당일 수업이 아닌 학생도 이름·아이디로 검색" />
+      ${searchedStudents.length ? `<div class="student-picker">${searchedStudents.map(student => `<button class="student-button ${selectedStudents.has(student.id) ? "selected" : ""}" data-action="pickCalendarStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${scheduledIds.includes(student.id) ? "예정 학생" : "추가 학생"}</span></button>`).join("")}</div>` : ""}
+      <div class="form-actions"><button data-action="clearSelection" ${selectedStudents.size ? "" : "disabled"}>선택 해제</button><button class="primary" data-action="openCalendarRecord" ${selectedStudents.size ? "" : "disabled"}>선택 학생 함께 기록</button></div>
+    </section>` : schedules.length ? `<div class="stack"><strong>예정 수업</strong>${schedules.map(item => `<div class="schedule-line"><span>${escapeHtml(item.period)} · ${escapeHtml(studentName(item.studentId))}</span><span class="badge">${escapeHtml(item.lessonType)}</span></div>`).join("")}</div>` : ""}
+    ${records.length ? `<div class="stack"><strong>학습 이력</strong>${session.type === "student" ? renderStudentDailyNotices(records) : renderRecordList(records, canTeacher())}</div>` : ""}
+    ${!holiday && !events.length && !schedules.length && !records.length && !canTeacher() ? `<div class="empty">등록된 일정이나 학습기록이 없습니다.</div>` : ""}</div>`;
+}
+
 function renderRoute() {
   if (route === "admin" && canAdmin()) return renderAdmin();
   if (route === "student") return renderStudent();
@@ -511,9 +627,10 @@ function renderTeacher() {
     .slice(0, 8);
 
   return `
-    <div class="grid">
+    <div class="grid teacher-dashboard">
       ${session.mustChangePassword ? renderPasswordPanel() : ""}
-      <section class="panel stack">
+      ${renderCalendar({ teacherId: session.id })}
+      <section class="panel stack today-class-panel">
         <div class="between">
           <div>
             <h2 class="section-title">오늘 수업</h2>
@@ -539,7 +656,7 @@ function renderTeacher() {
           <button class="primary" data-action="openBulkRecord" ${selectedStudents.size ? "" : "disabled"}>선택 학생 일괄 기록</button>
         ` : `<div class="empty">오늘 ${selectedPeriod}에 배정된 학생이 없습니다. 보충 학생은 검색해서 작성할 수 있어요.</div>`}
       </section>
-      <section class="panel">
+      <section class="panel recent-records-panel">
         <div class="between">
           <h2 class="section-title">최근 작성 기록</h2>
           <span class="muted small">강사는 모든 학생 기록을 볼 수 있어요</span>
@@ -552,7 +669,7 @@ function renderTeacher() {
 
 function renderPasswordPanel() {
   return `
-    <section class="panel stack">
+    <section class="panel stack password-panel">
       <strong>최초 로그인 비밀번호 변경</strong>
       <form class="grid two" data-form="changePassword">
         <label>새 비밀번호 <input name="password" type="password" minlength="4" required /></label>
@@ -590,12 +707,14 @@ function renderAdmin() {
             <button class="blue" data-action="openTeacherForm">강사 등록</button>
             <button data-action="openPeriodManager">교시/시간 관리</button>
             <button data-action="openScheduleForm">시간표 배정</button>
+            <button data-action="openAcademicEventForm">학사일정 등록</button>
             <button data-action="exportData">데이터 백업</button>
             <button data-action="importData">데이터 복원</button>
             <input class="visually-hidden" id="dataImportInput" type="file" accept="application/json" data-action="loadBackupFile" />
           </div>
         </div>
       </section>
+      ${renderCalendar()}
       <section class="grid two">
         <div class="panel">
           <h2 class="section-title">학생</h2>
@@ -640,6 +759,10 @@ function renderAdmin() {
         </div>
       </section>
       <section class="panel">
+        <div class="between"><h2 class="section-title">학사일정</h2><span class="muted small">휴원·시험·특강·안내</span></div>
+        ${renderAcademicEventList()}
+      </section>
+      <section class="panel">
         <div class="between">
           <h2 class="section-title">교시/시간</h2>
           <button data-action="openPeriodManager">관리 열기</button>
@@ -665,6 +788,7 @@ function renderStudent() {
   const dayRecords = records.filter(record => record.lessonDate === studentViewDate);
   return `
     <div class="grid">
+      ${renderCalendar({ studentId: session.id, parentView: true })}
       <section class="panel stack">
         <div class="between">
           <h2 class="section-title">내 학습 알림장</h2>
@@ -758,6 +882,7 @@ function renderRecordCard(record, editable, adminMode = false) {
         ${(record.material || record.unit) ? `<div><b>진도</b> ${escapeHtml([record.material, record.unit].filter(Boolean).join(" · "))}</div>` : ""}
         ${record.content ? `<div><b>수업 내용</b> ${escapeHtml(record.content)}</div>` : ""}
         ${record.assignment ? `<div><b>오늘의 과제</b> ${escapeHtml(record.assignment)}</div>` : ""}
+        ${record.focus ? `<div><b>수업집중도</b> ${escapeHtml(record.focus)}</div>` : ""}
         ${record.parentMessage ? `<div><b>학부모님께</b> ${escapeHtml(record.parentMessage)}</div>` : ""}
         ${record.studentMessage ? `<div><b>학생에게</b> ${escapeHtml(record.studentMessage)}</div>` : ""}
         ${testDisplay ? `<div><b>테스트</b> ${escapeHtml(testDisplay)}</div>` : ""}
@@ -796,6 +921,7 @@ function renderStudentRecordCard(record) {
       <div class="notice-rows">
         <div><b>출석정보</b><span>${escapeHtml(record.attendance || "-")}</span></div>
         <div><b>과제수행도</b><span>${renderHomeworkMeter(percent)}</span></div>
+        ${record.focus ? `<div><b>수업집중도</b><span>${escapeHtml(record.focus)}</span></div>` : ""}
         <div><b>학습과정</b><span>${escapeHtml(learningProcess || "-")}</span></div>
         <div><b>수업내용</b><span>${escapeHtml(record.content || "-")}</span></div>
         <div><b>오늘의과제</b><span>${escapeHtml(record.assignment || "-")}</span></div>
@@ -814,9 +940,8 @@ function homeworkClass(value) {
   return "warn";
 }
 
-function homeworkPercent(value = "100%") {
-  const match = String(normalizeHomework(value)).match(/\d+/);
-  return match ? Number(match[0]) : 100;
+function homeworkPercent(value = "완벽") {
+  return { "완벽": 100, "잘함": 75, "보통": 50, "부족": 25, "미완료": 0 }[normalizeHomework(value)] ?? 100;
 }
 
 function renderHomeworkMeter(percent) {
@@ -850,11 +975,13 @@ function renderModal() {
     editScheduleForm: renderEditScheduleForm(toList(state.schedules).find(s => s.id === modal.scheduleId)),
     periodManager: renderPeriodManager(),
     periodForm: renderPeriodForm(),
-    scheduleForm: renderScheduleForm()
+    scheduleForm: renderScheduleForm(),
+    academicEventForm: renderAcademicEventForm(),
+    calendarDay: renderCalendarDay()
   }[modal.type];
   return `
     <div class="modal-backdrop">
-      <section class="modal">
+      <section class="modal ${["bulkRecord", "editRecord"].includes(modal.type) ? "record-modal" : ""}">
         ${content}
       </section>
     </div>
@@ -863,33 +990,37 @@ function renderModal() {
 
 function renderRecordForm(mode, record = {}) {
   const studentIds = mode === "edit" ? toList(record.studentIds) : Array.from(selectedStudents);
+  const currentMaterials = studentIds.map(studentId => toList(state.students).find(student => student.id === studentId)?.currentMaterial).filter(Boolean);
+  const defaultMaterial = record.material || (new Set(currentMaterials).size === 1 ? currentMaterials[0] : "");
   return `
-    <form class="stack" data-form="record" data-mode="${mode}">
+    <form class="stack desktop-record-form" data-form="record" data-mode="${mode}">
       <div class="between">
         <h2 class="section-title">${mode === "edit" ? "기록 수정" : "일괄 학습기록"}</h2>
         <button type="button" data-action="closeModal">닫기</button>
       </div>
       <div class="badge">${studentIds.map(studentName).join(", ") || "선택 학생 없음"}</div>
-      <div class="grid three">
-        <label>수업일 <input name="lessonDate" type="date" value="${record.lessonDate || todayIso()}" required /></label>
-        <label>교시 <select name="period">${periodOptions().map(p => `<option ${p === (record.period || selectedPeriod) ? "selected" : ""}>${p}</option>`).join("")}</select></label>
+      <div class="grid two">
+        <label>수업일 <input name="lessonDate" type="date" value="${record.lessonDate || modal?.lessonDate || todayIso()}" required /></label>
         <label>수업 구분 <select name="lessonType">${LESSON_TYPES.map(v => `<option ${v === normalizeLessonType(record.lessonType || "정규") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       </div>
+      <input type="hidden" name="period" value="${escapeHtml(record.period || selectedPeriod)}" />
+      ${mode !== "edit" && studentIds.length > 1 ? `<div class="common-record-note"><strong>선택한 ${studentIds.length}명에게 공통으로 적용</strong><span>진도·수업 내용·과제를 한 번만 입력하세요. 학생별로 다른 내용만 아래에서 수정할 수 있습니다.</span></div>` : ""}
       <div class="grid two">
         <label>출석 <select name="attendance">${ATTENDANCE.map(v => `<option ${v === normalizeAttendance(record.attendance || "정시출석") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
-        <label>과제수행도 <select name="homework">${HOMEWORK.map(v => `<option ${v === normalizeHomework(record.homework || "100%") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+        <label>과제수행도 <select name="homework">${HOMEWORK.map(v => `<option ${v === normalizeHomework(record.homework || "완벽") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       </div>
+      <label>수업집중도 <select name="focus"><option value="">선택 안 함</option>${FOCUS_LEVELS.map(v => `<option ${v === record.focus ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       <div class="grid two">
         <label>교재명 <select name="material">
           <option value="">선택 안 함</option>
-          ${toList(state.materials).map(v => `<option value="${escapeHtml(v)}" ${v === record.material ? "selected" : ""}>${escapeHtml(v)}</option>`).join("")}
+          ${toList(state.materials).map(v => `<option value="${escapeHtml(v)}" ${v === defaultMaterial ? "selected" : ""}>${escapeHtml(v)}</option>`).join("")}
         </select></label>
         <label>교재 직접입력 <input name="materialCustom" value="" placeholder="목록에 없으면 입력" /></label>
       </div>
       <label>단원명 <input name="unit" list="units" value="${escapeHtml(record.unit || "")}" placeholder="예: 이차방정식" /></label>
       <label>수업 내용 <textarea name="content" data-common-field="content" placeholder="오늘 진행한 내용을 짧게 입력">${escapeHtml(record.content || "")}</textarea></label>
       <label>오늘의 과제 <textarea name="assignment" data-common-field="assignment" placeholder="예: p.28~31 대표유형, 오답노트 3문항">${escapeHtml(record.assignment || "")}</textarea></label>
-      <label>학부모님께 드리는 글 <textarea name="parentMessage" data-common-field="parentMessage" placeholder="특별히 전달할 말이 있으면 입력">${escapeHtml(record.parentMessage || "")}</textarea></label>
+      <label>학부모님께 드리는 글 <span class="muted small">선택사항 · 짧게 쓰거나 비워두어도 됩니다</span><textarea name="parentMessage" data-common-field="parentMessage" placeholder="특별히 전달할 말이 있을 때만 간단히 입력">${escapeHtml(record.parentMessage || "")}</textarea></label>
       <label>학생에게 보내는 글 <textarea name="studentMessage" data-common-field="studentMessage" placeholder="학생에게 직접 남길 응원이나 안내">${escapeHtml(record.studentMessage || "")}</textarea></label>
       ${renderAiPromptTool(record)}
       <label>리마인드 키워드 <input name="keywords" data-common-field="keywords" value="${escapeHtml(record.keywords || "")}" placeholder="예: 기울기, 일차식, 동류항" /></label>
@@ -939,7 +1070,7 @@ function renderIndividualRecordFields(studentIds, record = {}) {
     <section class="panel stack">
       <div>
         <strong>학생별 개별 수정</strong>
-        <div class="muted small">공통 내용을 입력하면 아래 학생별 칸에 자동으로 채워지고, 학생별로 직접 고치면 그 내용만 따로 저장됩니다.</div>
+        <div class="muted small">위의 공통 진도와 과제가 기본으로 들어갑니다. 내용이 다른 학생만 열어서 수정하세요.</div>
       </div>
       ${studentIds.map(studentId => `
         <details class="student-detail">
@@ -961,6 +1092,7 @@ function renderIndividualRecordFields(studentIds, record = {}) {
 
 function renderQuickRecordModal() {
   const query = modal.query || "";
+  const lessonDate = modal.lessonDate || todayIso();
   const found = toList(state.students).filter(s => s.active && (`${s.name} ${s.loginId} ${s.phone}`).includes(query)).slice(0, 12);
   return `
     <div class="stack">
@@ -968,9 +1100,18 @@ function renderQuickRecordModal() {
         <h2 class="section-title">학생 검색 작성</h2>
         <button data-action="closeModal">닫기</button>
       </div>
+      <div class="between">
+        <div class="muted small">학생을 여러 명 눌러 선택한 뒤 함께 기록할 수 있어요.</div>
+        <span class="badge">${selectedStudents.size}명 선택됨</span>
+      </div>
+      <label>수업 날짜 <input type="date" data-action="selectQuickRecordDate" value="${lessonDate}" max="${todayIso()}" /></label>
       <input data-action="searchStudent" value="${escapeHtml(query)}" placeholder="학생 이름, 아이디, 전화번호로 검색" autofocus />
       <div class="student-picker">
-        ${found.map(s => `<button class="student-button" data-action="pickQuickStudent" data-id="${s.id}">${escapeHtml(s.name)}<span>${escapeHtml(s.loginId)}</span></button>`).join("")}
+        ${found.map(s => `<button class="student-button ${selectedStudents.has(s.id) ? "selected" : ""}" data-action="pickQuickStudent" data-id="${s.id}">${escapeHtml(s.name)}<span>${escapeHtml(s.loginId)}</span></button>`).join("")}
+      </div>
+      <div class="form-actions">
+        <button data-action="clearQuickSelection" ${selectedStudents.size ? "" : "disabled"}>선택 해제</button>
+        <button class="primary" data-action="openQuickSelectedRecord" ${selectedStudents.size ? "" : "disabled"}>선택 학생 ${selectedStudents.size}명 기록 작성</button>
       </div>
     </div>
   `;
@@ -999,6 +1140,9 @@ function renderAiAssistModal() {
 }
 
 function renderStudentForm(student = null) {
+  const slots = student ? toList(state.schedules).filter(item => item.studentId === student.id).map(item => ({ day: item.day, period: item.period })) : toList(modal.scheduleSlots);
+  const existingSchedules = student ? toList(state.schedules).filter(item => item.studentId === student.id) : [];
+  const teacherIds = [...new Set(existingSchedules.flatMap(item => toList(item.teacherIds)))];
   return `
     <form class="stack" data-form="${student ? "studentEdit" : "student"}">
       <div class="between"><h2 class="section-title">${student ? "학생 수정" : "학생 등록"}</h2><button type="button" data-action="closeModal">닫기</button></div>
@@ -1016,9 +1160,30 @@ function renderStudentForm(student = null) {
       <label>전화번호 <input name="phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.phone || "")}" required /></label>
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리 자동 생성" /></label>
       <label>비밀번호 <input name="password" value="${escapeHtml(student?.password || "")}" placeholder="비워두면 전화번호 뒤 4자리" /></label>
+      <label>현재 교재 <select name="currentMaterial"><option value="">선택 안 함</option>${toList(state.materials).map(v => `<option ${v === student?.currentMaterial ? "selected" : ""}>${escapeHtml(v)}</option>`).join("")}</select></label>
+      <section class="panel stack"><div><strong>정규 수업 시간표</strong><div class="muted small">학생 등록과 동시에 요일과 교시를 선택합니다.</div></div>
+        <div class="weekly-period-grid">${DAYS.map(day => `<div class="day-column"><div class="day-title">${day}</div>${periodOptions().map(period => `<button type="button" class="${slots.some(slot => slot.day === day && slot.period === period) ? "selected" : ""}" data-action="pickStudentFormSlot" data-day="${day}" data-period-name="${escapeHtml(period)}">${escapeHtml(period)}</button>`).join("")}</div>`).join("")}</div>
+        <input type="hidden" name="slots" value="${escapeHtml(JSON.stringify(slots))}" />
+        <label>담당 선생님 <select name="teacherIds" multiple size="4">${toList(state.teachers).filter(t => t.active).map(t => `<option value="${t.id}" ${teacherIds.includes(t.id) ? "selected" : ""}>${escapeHtml(t.name)}</option>`).join("")}</select></label>
+      </section>
       <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">${student ? "저장" : "등록"}</button></div>
     </form>
   `;
+}
+
+function renderAcademicEventList() {
+  const events = [...toList(state.academicEvents)].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  if (!events.length) return `<div class="empty">등록된 학사일정이 없습니다.</div>`;
+  return `<div class="list">${events.map(item => `<div class="between event-card"><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.startDate)}${item.endDate !== item.startDate ? ` ~ ${escapeHtml(item.endDate)}` : ""} · ${escapeHtml(item.type)} · ${escapeHtml(item.visibility)}</span></div><button class="danger" data-action="deleteAcademicEvent" data-id="${item.id}">삭제</button></div>`).join("")}</div>`;
+}
+
+function renderAcademicEventForm() {
+  return `<form class="stack" data-form="academicEvent"><div class="between"><h2 class="section-title">학사일정 등록</h2><button type="button" data-action="closeModal">닫기</button></div>
+    <label>일정명 <input name="title" placeholder="예: 여름방학, 중간고사 대비" required /></label>
+    <div class="grid two"><label>시작일 <input type="date" name="startDate" value="${todayIso()}" required /></label><label>종료일 <input type="date" name="endDate" value="${todayIso()}" required /></label></div>
+    <div class="grid two"><label>구분 <select name="type"><option>휴원</option><option>공휴일</option><option>시험</option><option>특강</option><option>안내</option></select></label><label>공개 <select name="visibility"><option>전체</option><option>내부</option></select></label></div>
+    <label>메모 <textarea name="note" placeholder="필요한 안내만 간단히 입력"></textarea></label>
+    <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">등록</button></div></form>`;
 }
 
 function renderTeacherForm(teacher = null) {
@@ -1269,6 +1434,17 @@ function handleNonRenderingAction(button) {
     return true;
   }
 
+  if (action === "pickStudentFormSlot") {
+    const form = button.closest("form");
+    let slots = [];
+    try { slots = JSON.parse(form.elements.slots.value || "[]"); } catch { slots = []; }
+    const exists = slots.some(slot => slot.day === button.dataset.day && slot.period === button.dataset.periodName);
+    slots = exists ? slots.filter(slot => !(slot.day === button.dataset.day && slot.period === button.dataset.periodName)) : [...slots, { day: button.dataset.day, period: button.dataset.periodName }];
+    form.elements.slots.value = JSON.stringify(slots);
+    button.classList.toggle("selected");
+    return true;
+  }
+
   if (action === "pickScheduleStudent") {
     const studentId = button.dataset.id;
     const selected = new Set(toList(modal.scheduleStudentIds));
@@ -1455,18 +1631,26 @@ function handleGlobalInput(event) {
     return;
   }
 
-  const search = event.target.closest("input[data-action='searchStudent']");
+  const quickDate = event.target.closest("input[data-action='selectQuickRecordDate']");
+  if (quickDate) {
+    modal.lessonDate = quickDate.value || todayIso();
+    return;
+  }
+
+  const search = event.target.closest("input[data-action='searchStudent'], input[data-action='searchCalendarStudent']");
   if (!search) return;
+  if (event.isComposing || event.inputType === "insertCompositionText") return;
+  const searchAction = search.dataset.action;
   modal.query = search.value.trim();
   clearTimeout(searchRenderTimer);
   searchRenderTimer = setTimeout(() => {
     render();
-    const nextSearch = document.querySelector("input[data-action='searchStudent']");
+    const nextSearch = document.querySelector(`input[data-action='${searchAction}']`);
     if (nextSearch) {
       nextSearch.focus();
       nextSearch.setSelectionRange(nextSearch.value.length, nextSearch.value.length);
     }
-  }, 120);
+  }, 450);
 }
 
 function handleAction(event) {
@@ -1484,17 +1668,36 @@ function handleAction(event) {
   }
   if (action === "clearSelection") selectedStudents.clear();
   if (action === "openBulkRecord") modal = { type: "bulkRecord" };
-  if (action === "openQuickRecord") modal = { type: "quickRecord", query: "" };
+  if (action === "openQuickRecord") { selectedStudents.clear(); modal = { type: "quickRecord", query: "", lessonDate: todayIso() }; }
   if (action === "openAiAssist") modal = { type: "aiAssist" };
-  if (action === "pickQuickStudent") { selectedStudents = new Set([idValue]); modal = { type: "bulkRecord" }; }
+  if (action === "pickQuickStudent") {
+    selectedStudents.has(idValue) ? selectedStudents.delete(idValue) : selectedStudents.add(idValue);
+  }
+  if (action === "clearQuickSelection") selectedStudents.clear();
+  if (action === "openQuickSelectedRecord" && selectedStudents.size) modal = { type: "bulkRecord", lessonDate: modal.lessonDate || todayIso() };
   if (action === "editRecord") modal = { type: "editRecord", recordId: idValue };
-  if (action === "openStudentForm") modal = { type: "studentForm" };
-  if (action === "editStudent") modal = { type: "editStudentForm", studentId: idValue };
+  if (action === "openStudentForm") modal = { type: "studentForm", scheduleSlots: [] };
+  if (action === "editStudent") modal = { type: "editStudentForm", studentId: idValue, scheduleSlots: [] };
   if (action === "openTeacherForm") modal = { type: "teacherForm" };
   if (action === "editTeacher") modal = { type: "editTeacherForm", teacherId: idValue };
   if (action === "openPeriodManager") modal = { type: "periodManager" };
   if (action === "openPeriodForm") modal = { type: "periodForm" };
   if (action === "openScheduleForm") modal = { type: "scheduleForm", scheduleSlots: [], scheduleStudentIds: [] };
+  if (action === "openAcademicEventForm") modal = { type: "academicEventForm" };
+  if (action === "deleteAcademicEvent") state.academicEvents = toList(state.academicEvents).filter(item => item.id !== idValue);
+  if (action === "moveCalendarMonth") calendarMonth = moveMonth(calendarMonth, Number(event.currentTarget.dataset.delta));
+  if (action === "goCalendarToday") calendarMonth = todayIso().slice(0, 7);
+  if (action === "openCalendarDay") {
+    if (canTeacher()) selectedStudents.clear();
+    modal = { type: "calendarDay", date: event.currentTarget.dataset.date, studentId: event.currentTarget.dataset.studentId || "", query: "" };
+  }
+  if (action === "pickCalendarStudent") {
+    selectedStudents.has(idValue) ? selectedStudents.delete(idValue) : selectedStudents.add(idValue);
+  }
+  if (action === "selectCalendarScheduled") {
+    String(event.currentTarget.dataset.ids || "").split(",").filter(Boolean).forEach(studentId => selectedStudents.add(studentId));
+  }
+  if (action === "openCalendarRecord" && selectedStudents.size) modal = { type: "bulkRecord", lessonDate: modal.date };
   if (action === "editSchedule") modal = { type: "editScheduleForm", scheduleId: idValue };
   if (action === "pickScheduleDay") modal.scheduleDay = event.currentTarget.dataset.value;
   if (action === "pickSchedulePeriod") modal.schedulePeriod = event.currentTarget.dataset.value;
@@ -1577,13 +1780,14 @@ function handleForm(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   let result;
   if (form.dataset.form === "record") result = saveRecord(form.dataset.mode, data);
-  if (form.dataset.form === "student") result = addStudent(data);
-  if (form.dataset.form === "studentEdit") result = updateStudent(data);
+  if (form.dataset.form === "student") result = addStudent(form, data);
+  if (form.dataset.form === "studentEdit") result = updateStudent(form, data);
   if (form.dataset.form === "teacher") result = addTeacher(data);
   if (form.dataset.form === "teacherEdit") result = updateTeacher(data);
   if (form.dataset.form === "period") result = addPeriod(data);
   if (form.dataset.form === "schedule") result = addSchedule(form);
   if (form.dataset.form === "scheduleEdit") result = updateSchedule(form);
+  if (form.dataset.form === "academicEvent") result = addAcademicEvent(data);
   if (form.dataset.form === "changePassword") result = changePassword(data);
   if (result === false) return;
   saveState();
@@ -1610,6 +1814,7 @@ function saveRecord(mode, data) {
       version: record.version + 1
     });
     state.confirmations = toList(state.confirmations).filter(c => c.recordId !== record.id);
+    if (material) toList(record.studentIds).forEach(studentId => { const student = state.students.find(item => item.id === studentId); if (student) student.currentMaterial = material; });
     return;
   }
   const studentIds = Array.from(selectedStudents);
@@ -1639,11 +1844,33 @@ function saveRecord(mode, data) {
       hiddenBy: null,
       hiddenAt: null
     });
+    if (material) {
+      const student = state.students.find(item => item.id === studentId);
+      if (student) student.currentMaterial = material;
+    }
   });
   selectedStudents.clear();
 }
 
-function addStudent(data) {
+function readStudentScheduleForm(form) {
+  let slots = [];
+  try { slots = JSON.parse(new FormData(form).get("slots") || "[]"); } catch { slots = []; }
+  const teacherIds = Array.from(form.elements.teacherIds.selectedOptions).map(option => option.value);
+  if (slots.length && !teacherIds.length) {
+    showMessage("시간표를 선택했다면 담당 선생님도 선택해주세요.");
+    return null;
+  }
+  return { slots, teacherIds };
+}
+
+function syncStudentSchedules(studentId, scheduleData) {
+  state.schedules = toList(state.schedules).filter(item => item.studentId !== studentId);
+  scheduleData.slots.forEach(slot => state.schedules.push({ id: id("sch"), studentId, day: slot.day, period: slot.period, teacherIds: scheduleData.teacherIds, lessonType: "정규" }));
+}
+
+function addStudent(form, data) {
+  const scheduleData = readStudentScheduleForm(form);
+  if (!scheduleData) return false;
   const phone = formatPhone(data.phone);
   if (!isValidPhone(phone)) {
     showMessage("전화번호는 010-0000-0000 형식으로 입력해주세요.");
@@ -1661,19 +1888,24 @@ function addStudent(data) {
     showMessage("같은 아이디를 쓰는 강사가 있습니다. 로그인 아이디를 직접 입력해주세요.");
     return false;
   }
+  const studentId = id("s");
   state.students.push({
-    id: id("s"),
+    id: studentId,
     name: data.name.trim(),
     birthday4: data.birthday4.trim(),
     schoolYear: data.schoolYear?.trim() || "",
     phone,
     loginId,
     password: data.password?.trim() || tail,
+    currentMaterial: data.currentMaterial || "",
     active: true
   });
+  syncStudentSchedules(studentId, scheduleData);
 }
 
-function updateStudent(data) {
+function updateStudent(form, data) {
+  const scheduleData = readStudentScheduleForm(form);
+  if (!scheduleData) return false;
   const student = toList(state.students).find(item => item.id === data.id);
   if (!student) return;
   const phone = formatPhone(data.phone);
@@ -1695,6 +1927,17 @@ function updateStudent(data) {
   student.phone = phone;
   student.loginId = loginId;
   student.password = data.password?.trim() || tail;
+  student.currentMaterial = data.currentMaterial || "";
+  syncStudentSchedules(student.id, scheduleData);
+}
+
+function addAcademicEvent(data) {
+  if (data.endDate < data.startDate) {
+    showMessage("종료일은 시작일보다 빠를 수 없습니다.");
+    return false;
+  }
+  state.academicEvents = toList(state.academicEvents);
+  state.academicEvents.push({ id: id("evt"), title: data.title.trim(), startDate: data.startDate, endDate: data.endDate, type: data.type, visibility: data.visibility, note: data.note?.trim() || "" });
 }
 
 function addTeacher(data) {

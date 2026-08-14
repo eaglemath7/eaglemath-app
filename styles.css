@@ -466,6 +466,26 @@ label {
   border: 1px solid var(--line);
   padding: 18px;
 }
+.record-modal { width: min(1120px, 96vw); }
+
+@media (min-width: 980px) {
+  .teacher-dashboard { grid-template-columns: minmax(420px, .9fr) minmax(520px, 1.25fr); align-items: start; }
+  .teacher-dashboard .password-panel,
+  .teacher-dashboard .recent-records-panel { grid-column: 1 / -1; }
+  .teacher-dashboard .calendar-panel,
+  .teacher-dashboard .today-class-panel { height: 100%; }
+  .desktop-record-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+  .desktop-record-form > .between,
+  .desktop-record-form > .badge,
+  .desktop-record-form > .grid,
+  .desktop-record-form > .common-record-note,
+  .desktop-record-form > .ai-prompt-panel,
+  .desktop-record-form > .panel,
+  .desktop-record-form > .form-actions,
+  .desktop-record-form > datalist { grid-column: 1 / -1; }
+  .desktop-record-form textarea { min-height: 96px; }
+  .desktop-record-form .student-detail .stack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .notice-modal {
   width: min(520px, 100%);
 }
@@ -516,10 +536,43 @@ th {
   font-weight: 700;
 }
 
+.calendar-panel { overflow: hidden; }
+.calendar-head { text-align: center; }
+.calendar-head > button { min-width: 46px; font-size: 24px; }
+.calendar-head .section-title { margin: 0; }
+.link-button { padding: 2px 8px; border: 0; color: var(--blue); background: transparent; font-size: 12px; }
+.calendar-weekdays, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.calendar-weekdays span { padding: 10px 2px 6px; color: var(--muted); text-align: center; font-size: 12px; font-weight: 800; }
+.calendar-weekdays .sunday, .calendar-day.sunday .calendar-number { color: #d84646; }
+.calendar-weekdays .saturday, .calendar-day.saturday .calendar-number { color: #3478c8; }
+.calendar-day { min-height: 76px; padding: 7px 5px; border: 1px solid #edf0f3; border-radius: 0; background: #fff; text-align: left; display: flex; flex-direction: column; gap: 4px; }
+.calendar-day.outside { opacity: .28; }
+.calendar-day.today { border: 2px solid var(--blue); background: #f8fbff; }
+.calendar-number { font-size: 12px; font-weight: 800; }
+.calendar-scheduled, .calendar-record, .calendar-event, .calendar-holiday { width: 100%; overflow: hidden; padding: 3px 5px; border-radius: 5px; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.calendar-scheduled { color: #51636f; background: #edf5f2; }
+.calendar-record { color: #2459a7; background: #e9f2ff; font-weight: 800; }
+.calendar-event { color: #715d24; background: #faf2d9; }
+.calendar-holiday { color: #b53b3b; background: #fff0f0; }
+.holiday-card { border-color: #f0caca; background: #fff5f5; }
+.holiday-card strong { color: #bd3f3f; }
+.calendar-student-select { padding: 14px; border: 1px solid #cfe1f7; border-radius: 8px; background: #f8fbff; }
+.calendar-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+.calendar-legend span { display: flex; align-items: center; gap: 5px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.scheduled { background: #cfe3dc; }.dot.recorded { background: #b8d6ff; }.dot.event { background: #eddda8; }
+.policy-note { margin: 12px 0 0; padding: 10px 12px; border-radius: 7px; color: #657078; background: #f6f7f7; font-size: 12px; line-height: 1.6; }
+.common-record-note { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid #cfe1f7; border-radius: 8px; color: #315d91; background: #f3f8ff; }
+.common-record-note span { color: #61758c; font-size: 12px; }
+.schedule-line, .event-card { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fafcfb; }
+.event-card span { color: var(--muted); font-size: 12px; }
+
 @media (max-width: 760px) {
   .brand img { width: 82px; height: 34px; }
   .brand-title strong { font-size: 14px; }
   .grid.two, .grid.three { grid-template-columns: 1fr; }
   .topbar { align-items: flex-start; }
   .user-chip { display: none; }
+  .calendar-day { min-height: 62px; padding: 5px 3px; }
+  .calendar-scheduled, .calendar-record, .calendar-event, .calendar-holiday { padding: 2px 3px; font-size: 9px; }
 }
