@@ -193,12 +193,14 @@ function normalizeState(value) {
     teacherIds: Array.isArray(schedule.teacherIds) ? schedule.teacherIds : [],
     lessonType: schedule.lessonType || "정규"
   }));
+  const hasPeriodOrder = next.periods.some(period => typeof period === "object" && Number.isFinite(period.order));
   next.periods = next.periods.map((period, index) => {
     if (typeof period === "string") {
-      return { id: `p_${index + 1}`, name: period, startTime: "", endTime: "", active: true };
+      return { id: `p_${index + 1}`, name: period, startTime: "", endTime: "", active: true, order: index };
     }
-    return { id: period.id || id("p"), name: period.name || `${index + 1}교시`, startTime: period.startTime || "", endTime: period.endTime || "", active: period.active !== false };
+    return { id: period.id || id("p"), name: period.name || `${index + 1}교시`, startTime: period.startTime || "", endTime: period.endTime || "", active: period.active !== false, order: Number.isFinite(period.order) ? period.order : index };
   });
+  if (!hasPeriodOrder) sortPeriodsByTime(next.periods);
   next.records = next.records.map(record => ({
     ...record,
     studentIds: Array.isArray(record.studentIds) ? record.studentIds : (record.studentId ? [record.studentId] : []),
@@ -332,7 +334,7 @@ function canTeacher() {
 }
 
 function periodOptions() {
-  const periods = toList(state.periods)
+  const periods = orderedPeriods()
     .filter(period => period.active)
     .map(period => period.name);
   return periods.length ? periods : DEFAULT_PERIODS;
@@ -528,6 +530,31 @@ function routeLabel() {
   if (route === "admin") return "관리자/부원장 전체 관리";
   if (route === "teacher") return "강사 수업기록";
   return "학생/학부모 알림장";
+}
+
+function comparePeriodsByTime(a, b) {
+  const aStart = a.startTime || "99:99";
+  const bStart = b.startTime || "99:99";
+  return aStart.localeCompare(bStart)
+    || (a.endTime || "99:99").localeCompare(b.endTime || "99:99")
+    || String(a.name).localeCompare(String(b.name), "ko");
+}
+
+function orderedPeriods() {
+  return [...toList(state.periods)].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+function sortPeriodsByTime(periods = state.periods) {
+  [...toList(periods)].sort(comparePeriodsByTime).forEach((period, index) => { period.order = index; });
+}
+
+function movePeriod(periodId, direction) {
+  const periods = orderedPeriods();
+  const index = periods.findIndex(period => period.id === periodId);
+  const targetIndex = index + direction;
+  if (index < 0 || targetIndex < 0 || targetIndex >= periods.length) return;
+  [periods[index], periods[targetIndex]] = [periods[targetIndex], periods[index]];
+  periods.forEach((period, order) => { period.order = order; });
 }
 
 function dateDayName(date) {
@@ -1285,7 +1312,7 @@ function renderTeacherForm(teacher = null) {
 }
 
 function renderPeriodTable() {
-  const periods = toList(state.periods);
+  const periods = orderedPeriods();
   if (!periods.length) return `<div class="empty">등록된 교시가 없습니다. 교시를 추가해주세요.</div>`;
   return `
     <div class="table-wrap">
@@ -1296,6 +1323,8 @@ function renderPeriodTable() {
             <td>${escapeHtml(p.name)} ${!p.active ? `<span class="badge bad">숨김</span>` : ""}</td>
             <td>${escapeHtml([p.startTime, p.endTime].filter(Boolean).join(" ~ ") || "시간 미지정")}</td>
             <td class="toolbar">
+              <button title="위로 이동" aria-label="${escapeHtml(p.name)} 위로 이동" data-action="movePeriodUp" data-id="${p.id}">↑</button>
+              <button title="아래로 이동" aria-label="${escapeHtml(p.name)} 아래로 이동" data-action="movePeriodDown" data-id="${p.id}">↓</button>
               <button data-action="togglePeriod" data-id="${p.id}">${p.active ? "숨김" : "복구"}</button>
               <button class="danger" data-action="deletePeriod" data-id="${p.id}">삭제</button>
             </td>
@@ -1311,7 +1340,7 @@ function renderPeriodManager() {
     <div class="stack">
       <div class="between">
         <h2 class="section-title">교시/시간 관리</h2>
-        <button type="button" data-action="closeModal">닫기</button>
+        <div class="toolbar"><button type="button" data-action="sortPeriodsByTime">시간순 정렬</button><button type="button" data-action="closeModal">닫기</button></div>
       </div>
       ${renderPeriodTable()}
       ${renderPeriodForm(true)}
@@ -1821,6 +1850,9 @@ function handleAction(event) {
   if (action === "toggleStudent") toggleActive("students", idValue);
   if (action === "toggleTeacher") toggleActive("teachers", idValue);
   if (action === "togglePeriod") toggleActive("periods", idValue);
+  if (action === "movePeriodUp") movePeriod(idValue, -1);
+  if (action === "movePeriodDown") movePeriod(idValue, 1);
+  if (action === "sortPeriodsByTime") sortPeriodsByTime();
   if (action === "deletePeriod") deletePeriod(idValue);
   if (action === "deleteSchedule") deleteSchedule(idValue);
   saveState();
@@ -2132,8 +2164,10 @@ function addPeriod(data) {
     name,
     startTime: data.startTime || "",
     endTime: data.endTime || "",
-    active: true
+    active: true,
+    order: state.periods.length
   });
+  sortPeriodsByTime();
 }
 
 function addSchedule(form) {
