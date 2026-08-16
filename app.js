@@ -1,7 +1,10 @@
-const STORAGE_KEY = "eagleMathApp.v1";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmdG5wZnBocmttcnJvZmJ2cGhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMTIwNzUsImV4cCI6MjA5NjY4ODA3NX0.sPx91LSD9z_OkfH0ebm-6T9DJ4quEhvCdvE7RO_U8s8";
-const SUPABASE_STATE_ID = "main";
+// anon key는 이제 공개되어도 안전합니다 — 실제 접근 제어는 Supabase Row Level Security가 담당합니다.
+const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
 const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
 const DEFAULT_PERIODS = ["1교시", "2교시", "3교시", "4교시", "5교시", "6교시"];
 const ATTENDANCE = ["정시출석", "지각", "결석"];
@@ -54,10 +57,9 @@ const todayIso = () => {
   return local.toISOString().slice(0, 10);
 };
 const todayDay = () => DAYS[(new Date().getDay() + 6) % 7];
-const id = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 const app = document.getElementById("app");
 
-let state = loadState();
+let state = { teachers: [], students: [], periods: [], schedules: [], materials: DEFAULT_MATERIALS, units: DEFAULT_UNITS, records: [], confirmations: [], academicEvents: [] };
 let session = null;
 let route = "home";
 let selectedPeriod = "1교시";
@@ -67,11 +69,7 @@ let searchRenderTimer = null;
 let listenersReady = false;
 let studentViewDate = todayIso();
 let calendarMonth = todayIso().slice(0, 7);
-let syncStatus = "로컬 저장";
-let remoteLoaded = false;
-let saveTimer = null;
-let remoteSaveInFlight = false;
-let remoteSavePending = false;
+let syncStatus = "불러오는 중";
 
 window.addEventListener("error", (event) => {
   const message = event.message || "알 수 없는 오류";
@@ -79,144 +77,15 @@ window.addEventListener("error", (event) => {
   document.body.insertAdjacentHTML("afterbegin", `<div class="runtime-error">앱 오류: ${escapeHtml(message + location)}</div>`);
 });
 
-function seedState() {
-  const teachers = [
-    { id: "t_admin", name: "관리자", loginId: "admin", password: "1234", role: "admin", mustChangePassword: false, active: true },
-    { id: "t_deputy", name: "부원장", loginId: "deputy", password: "1234", role: "deputy", mustChangePassword: false, active: true },
-    { id: "t_kim", name: "김관희쌤", loginId: "kim", password: "1234", role: "teacher", mustChangePassword: true, active: true },
-    { id: "t_park", name: "박쌤", loginId: "park", password: "1234", role: "teacher", mustChangePassword: true, active: true }
-  ];
-  const students = [
-    { id: "s_1", name: "김민준", birthday4: "0315", phone: "010-2222-1234", loginId: "김민준0315", password: "1234", active: true },
-    { id: "s_2", name: "이서연", birthday4: "0821", phone: "010-3333-5678", loginId: "이서연0821", password: "5678", active: true },
-    { id: "s_3", name: "최지훈", birthday4: "1204", phone: "010-4444-9012", loginId: "최지훈1204", password: "9012", active: true },
-    { id: "s_4", name: "박하은", birthday4: "0410", phone: "010-5555-2468", loginId: "박하은0410", password: "2468", active: true },
-    { id: "s_5", name: "정도윤", birthday4: "1018", phone: "010-6666-1357", loginId: "정도윤1018", password: "1357", active: true }
-  ];
-  return {
-    teachers,
-    students,
-    periods: DEFAULT_PERIODS.map((name, index) => ({ id: `p_${index + 1}`, name, startTime: "", endTime: "", active: true })),
-    schedules: [
-      { id: "sch_1", studentId: "s_1", day: "월", period: "1교시", teacherIds: ["t_kim", "t_park"], lessonType: "정규" },
-      { id: "sch_2", studentId: "s_2", day: "월", period: "1교시", teacherIds: ["t_kim"], lessonType: "정규" },
-      { id: "sch_3", studentId: "s_3", day: "월", period: "2교시", teacherIds: ["t_kim"], lessonType: "개별" },
-      { id: "sch_4", studentId: "s_4", day: "화", period: "1교시", teacherIds: ["t_park"], lessonType: "정규" },
-      { id: "sch_5", studentId: "s_5", day: "수", period: "3교시", teacherIds: ["t_kim", "t_park"], lessonType: "보충" }
-    ],
-    materials: DEFAULT_MATERIALS,
-    units: DEFAULT_UNITS,
-    records: [],
-    confirmations: [],
-    academicEvents: []
-  };
-}
-
-function loadState() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return normalizeState(seedState());
-  try {
-    const parsed = JSON.parse(saved);
-    const normalized = normalizeState(parsed);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-    return normalized;
-  } catch { return normalizeState(seedState()); }
-}
-
-function normalizeState(value) {
-  const fallback = seedState();
-  const next = value && typeof value === "object" ? value : {};
-  next.teachers = Array.isArray(next.teachers) ? next.teachers : fallback.teachers;
-  next.students = Array.isArray(next.students) ? next.students : fallback.students;
-  next.schedules = Array.isArray(next.schedules) ? next.schedules : [];
-  next.materials = Array.isArray(next.materials) ? next.materials : fallback.materials;
-  next.units = Array.isArray(next.units) ? next.units : fallback.units;
-  next.materials = [...new Set([...DEFAULT_MATERIALS, ...next.materials])];
-  next.units = [...new Set([...DEFAULT_UNITS, ...next.units])];
-  next.records = Array.isArray(next.records) ? next.records : [];
-  next.confirmations = Array.isArray(next.confirmations) ? next.confirmations : [];
-  next.academicEvents = Array.isArray(next.academicEvents) ? next.academicEvents : [];
-  next.periods = Array.isArray(next.periods) ? next.periods : fallback.periods;
-
-  next.teachers = next.teachers.map(teacher => ({
-    active: true,
-    role: "teacher",
-    mustChangePassword: false,
-    phone: "",
-    ...teacher
-  }));
-  fallback.teachers.forEach(defaultTeacher => {
-    const existing = next.teachers.find(teacher => teacher.id === defaultTeacher.id || teacher.loginId === defaultTeacher.loginId);
-    if (existing) {
-      existing.id = defaultTeacher.id;
-      existing.name = existing.name || defaultTeacher.name;
-      existing.loginId = defaultTeacher.loginId;
-      existing.role = defaultTeacher.role;
-      if (defaultTeacher.role === "admin" || defaultTeacher.role === "deputy") {
-        existing.password = "1234";
-        existing.active = true;
-        existing.mustChangePassword = false;
-      }
-      return;
-    }
-    next.teachers.push(defaultTeacher);
-  });
-  next.students = next.students.map(student => ({
-    active: true,
-    schoolYear: "",
-    currentMaterial: "",
-    studyTerm: "1학기",
-    materials: student.currentMaterial ? [student.currentMaterial] : [],
-    ...student
-  })).map(student => ({
-    ...student,
-    studyPlans: (toList(student.studyPlans).length ? student.studyPlans : toList(student.materials).map(material => ({
-      material,
-      grade: student.schoolYear || "",
-      term: student.studyTerm || "1학기"
-    }))).filter(plan => plan && plan.material).map(plan => ({
-      material: String(plan.material),
-      grade: GRADES.includes(plan.grade) ? plan.grade : (student.schoolYear || ""),
-      term: TERMS.includes(plan.term) ? plan.term : "1학기"
-    }))
-  })).map(student => ({
-    ...student,
-    materials: [...new Set(toList(student.studyPlans).map(plan => plan.material).filter(Boolean))]
-  }));
-  next.units = next.units
-    .map(unit => String(unit).replace(/연립일차부등식/g, "연립일차방정식"))
-    .filter((unit, index, units) => units.indexOf(unit) === index);
-  next.records = next.records.map(record => ({
-    ...record,
-    unit: String(record.unit || "").replace(/연립일차부등식/g, "연립일차방정식")
-  }));
-  next.schedules = next.schedules.map(schedule => ({
-    ...schedule,
-    teacherIds: Array.isArray(schedule.teacherIds) ? schedule.teacherIds : [],
-    lessonType: schedule.lessonType || "정규"
-  }));
-  const hasPeriodOrder = next.periods.some(period => typeof period === "object" && Number.isFinite(period.order));
-  next.periods = next.periods.map((period, index) => {
-    if (typeof period === "string") {
-      return { id: `p_${index + 1}`, name: period, startTime: "", endTime: "", active: true, order: index };
-    }
-    return { id: period.id || id("p"), name: period.name || `${index + 1}교시`, startTime: period.startTime || "", endTime: period.endTime || "", active: period.active !== false, order: Number.isFinite(period.order) ? period.order : index };
-  });
-  if (!hasPeriodOrder) sortPeriodsByTime(next.periods);
-  next.records = next.records.map(record => ({
-    ...record,
-    studentIds: Array.isArray(record.studentIds) ? record.studentIds : (record.studentId ? [record.studentId] : []),
-    lessonType: normalizeLessonType(record.lessonType),
-    attendance: normalizeAttendance(record.attendance),
-    homework: normalizeHomework(record.homework),
-    focus: FOCUS_LEVELS.includes(record.focus) ? record.focus : "",
-    assignment: record.assignment || "",
-    parentMessage: record.parentMessage || "",
-    studentMessage: record.studentMessage || "",
-    version: record.version || 1,
-    hidden: record.hidden || false
-  }));
-  return next;
+// =========================================================
+// 로그인 아이디 ↔ Supabase Auth 이메일 변환 (한글 아이디도 처리 가능하도록
+// UTF-8 바이트를 16진수로 인코딩). 실제로 발송되지 않는 내부 전용 주소이며,
+// supabase/functions/_shared/login-email.ts 와 반드시 같은 로직이어야 합니다.
+// =========================================================
+function loginIdToEmail(loginId) {
+  const bytes = new TextEncoder().encode(loginId.trim());
+  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `u${hex}@eaglemath.local`;
 }
 
 function normalizeLessonType(value = "정규") {
@@ -239,92 +108,108 @@ function normalizeHomework(value = "완벽") {
   return HOMEWORK.includes(next) ? next : "완벽";
 }
 
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  scheduleRemoteSave();
-}
-
 function showMessage(message) {
   window.alert(message);
 }
 
-function supabaseReady() {
-  return Boolean(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY);
-}
+// =========================================================
+// 서버 데이터 로딩 — RLS가 role별로 보이는 행을 알아서 걸러주므로
+// 클라이언트는 항상 "전체 조회"만 하면 됩니다.
+// =========================================================
+async function loadAllData() {
+  const [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes] = await Promise.all([
+    supabase.from("profiles").select("*"),
+    supabase.from("staff_directory").select("*"),
+    supabase.from("students").select("*"),
+    supabase.from("periods").select("*"),
+    supabase.from("schedules").select("*"),
+    supabase.from("materials").select("*"),
+    supabase.from("units").select("*"),
+    supabase.from("academic_events").select("*"),
+    supabase.from("lesson_records").select("*"),
+    supabase.from("record_confirmations").select("*")
+  ]);
 
-function supabaseHeaders(extra = {}) {
-  return {
-    apikey: SUPABASE_PUBLISHABLE_KEY,
-    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
-    "Content-Type": "application/json",
-    ...extra
-  };
-}
+  const errors = [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes]
+    .map((res) => res.error).filter(Boolean);
+  if (errors.length) {
+    console.error("loadAllData errors", errors);
+    syncStatus = `일부 데이터 로드 실패 · ${errors[0].message}`;
+  } else {
+    syncStatus = `Supabase 연결됨 · ${formatKoreanDate(todayIso())}`;
+  }
 
-async function loadRemoteState() {
-  if (!supabaseReady()) return;
-  syncStatus = "Supabase 확인 중";
-  render();
-  try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?id=eq.${encodeURIComponent(SUPABASE_STATE_ID)}&select=data,updated_at`, {
-      headers: supabaseHeaders()
+  const teacherMap = new Map();
+  toList(staffDirRes.data).forEach((row) => {
+    teacherMap.set(row.id, { id: row.id, name: row.name, role: row.role, loginId: "", phone: "", active: true, mustChangePassword: false });
+  });
+  toList(profilesRes.data).filter((p) => p.role !== "student").forEach((row) => {
+    teacherMap.set(row.id, {
+      id: row.id, name: row.name, role: row.role, loginId: row.login_id, phone: row.phone || "",
+      active: row.active, mustChangePassword: row.must_change_password
     });
-    if (!response.ok) throw new Error(`load ${response.status}`);
-    const rows = await response.json();
-    if (rows[0]?.data) {
-      state = normalizeState(rows[0].data);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      syncStatus = `Supabase 연결됨 · ${formatKoreanDate(todayIso())}`;
-    } else {
-      syncStatus = "Supabase 연결됨 · 첫 저장 대기";
-      scheduleRemoteSave(0);
-    }
-    remoteLoaded = true;
-  } catch (error) {
-    syncStatus = `로컬 저장 · Supabase 확인 실패 ${error.message || ""}`.trim();
-  }
-  render();
+  });
+  state.teachers = Array.from(teacherMap.values());
+
+  const profileById = new Map(toList(profilesRes.data).map((p) => [p.id, p]));
+  state.students = toList(studentsRes.data).map((row) => {
+    const profile = profileById.get(row.id) || {};
+    return {
+      id: row.id, name: profile.name || "", birthday4: row.birthday4, schoolYear: row.school_year || "",
+      phone: profile.phone || "", loginId: profile.login_id || "", studyPlans: toList(row.study_plans),
+      active: profile.active !== false
+    };
+  });
+
+  state.periods = toList(periodsRes.data).map((row) => ({
+    id: row.id, name: row.name, startTime: (row.start_time || "").slice(0, 5), endTime: (row.end_time || "").slice(0, 5),
+    active: row.active, order: row.order
+  }));
+
+  state.schedules = toList(schedulesRes.data).map((row) => ({
+    id: row.id, studentId: row.student_id, day: row.day, period: row.period,
+    lessonType: row.lesson_type, teacherIds: toList(row.teacher_ids)
+  }));
+
+  state.materials = [...new Set([...DEFAULT_MATERIALS, ...toList(materialsRes.data).map((row) => row.name)])];
+  state.units = [...new Set([...DEFAULT_UNITS, ...toList(unitsRes.data).map((row) => row.name)])];
+
+  state.academicEvents = toList(eventsRes.data).map((row) => ({
+    id: row.id, title: row.title, startDate: row.start_date, endDate: row.end_date,
+    type: row.type, visibility: row.visibility, note: row.note || ""
+  }));
+
+  state.records = toList(recordsRes.data).map((row) => ({
+    id: row.id, groupId: row.group_id, studentIds: [row.student_id], lessonDate: row.lesson_date,
+    period: row.period, lessonType: normalizeLessonType(row.lesson_type), attendance: normalizeAttendance(row.attendance),
+    homework: normalizeHomework(row.homework), focus: row.focus || "", material: row.material || "", unit: row.unit || "",
+    content: row.content || "", assignment: row.assignment || "", parentMessage: row.parent_message || "",
+    studentMessage: row.student_message || "", keywords: row.keywords || "", testName: row.test_name || "", testScore: "",
+    nextPlan: row.next_plan || "", createdBy: row.created_by, updatedBy: row.updated_by, version: row.version,
+    hidden: row.hidden, hiddenBy: row.hidden_by, hiddenAt: row.hidden_at, createdAt: row.created_at, updatedAt: row.updated_at
+  }));
+
+  state.confirmations = toList(confirmationsRes.data).map((row) => ({
+    id: row.id, recordId: row.record_id, studentId: row.student_id, version: row.version,
+    keywords: toList(row.keywords), assignmentConfirmed: row.assignment_confirmed,
+    assignmentConfirmedAt: row.assignment_confirmed_at, confirmedAt: row.confirmed_at
+  }));
 }
 
-function scheduleRemoteSave(delay = 500) {
-  if (!supabaseReady()) return;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveRemoteState, delay);
-}
-
-async function saveRemoteState() {
-  if (!supabaseReady()) return;
-  if (remoteSaveInFlight) {
-    remoteSavePending = true;
-    return;
-  }
-  remoteSaveInFlight = true;
-  do {
-    remoteSavePending = false;
-    const snapshot = normalizeState(JSON.parse(JSON.stringify(state)));
-    syncStatus = "Supabase 저장 중";
-    if (remoteLoaded) render();
+// 관리자 전용 Edge Function 호출 (service_role 키가 필요한 계정 생성/비밀번호
+// 재설정만 서버에서 처리). 호출자의 세션 토큰은 supabase-js가 자동으로 붙입니다.
+async function invokeAdmin(name, body) {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) {
+    let message = error.message || "요청 실패";
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?on_conflict=id`, {
-        method: "POST",
-        headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
-        body: JSON.stringify({
-          id: SUPABASE_STATE_ID,
-          data: snapshot,
-          updated_at: new Date().toISOString()
-        })
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`${response.status}${text ? ` ${text.slice(0, 80)}` : ""}`);
-      }
-      syncStatus = "Supabase 저장됨";
-    } catch (error) {
-      syncStatus = `로컬 저장 · Supabase 저장 실패 ${error.message || ""}`.trim();
-    }
-  } while (remoteSavePending);
-  remoteSaveInFlight = false;
-  if (remoteLoaded) render();
+      const parsed = await error.context?.json();
+      if (parsed?.error) message = parsed.error;
+    } catch { /* ignore */ }
+    return { data: null, error: message };
+  }
+  if (data?.error) return { data: null, error: data.error };
+  return { data, error: null };
 }
 
 function teacherName(teacherId) {
@@ -443,30 +328,45 @@ function formatTest(value = "", legacyScore = "") {
   return combined;
 }
 
-function login(event) {
+// =========================================================
+// 인증 (Supabase Auth)
+// =========================================================
+async function establishSession(userId) {
+  const { data: profile, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+  if (error || !profile || !profile.active) return false;
+  session = {
+    type: profile.role === "student" ? "student" : "teacher",
+    id: profile.id, name: profile.name, role: profile.role, mustChangePassword: profile.must_change_password
+  };
+  route = profile.role === "student" ? "student" : (canAdmin() ? "admin" : "teacher");
+  selectedPeriod = "1교시";
+  return true;
+}
+
+async function login(event) {
   event.preventDefault();
   const form = new FormData(event.target);
   const loginId = form.get("loginId").trim();
   const password = form.get("password").trim();
-  const teacher = toList(state.teachers).find(t => t.active && t.loginId === loginId && t.password === password);
-  if (teacher) {
-    session = { type: "teacher", id: teacher.id, name: teacher.name, role: teacher.role, mustChangePassword: teacher.mustChangePassword };
-    route = canAdmin() ? "admin" : "teacher";
-    selectedPeriod = "1교시";
-    render();
+  const errorEl = document.getElementById("loginError");
+  errorEl.textContent = "로그인 중...";
+  const { data, error } = await supabase.auth.signInWithPassword({ email: loginIdToEmail(loginId), password });
+  if (error || !data?.user) {
+    errorEl.textContent = "아이디 또는 비밀번호를 확인해주세요.";
     return;
   }
-  const student = toList(state.students).find(s => s.active && s.loginId === loginId && s.password === password);
-  if (student) {
-    session = { type: "student", id: student.id, name: student.name, role: "student" };
-    route = "student";
-    render();
+  const ok = await establishSession(data.user.id);
+  if (!ok) {
+    await supabase.auth.signOut();
+    errorEl.textContent = "계정을 확인할 수 없습니다. 관리자에게 문의해주세요.";
     return;
   }
-  document.getElementById("loginError").textContent = "아이디 또는 비밀번호를 확인해주세요.";
+  await loadAllData();
+  render();
 }
 
-function logout() {
+async function logout() {
+  await supabase.auth.signOut();
   session = null;
   route = "home";
   selectedStudents.clear();
@@ -558,17 +458,27 @@ function orderedPeriods() {
   return [...toList(state.periods)].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
 
-function sortPeriodsByTime(periods = state.periods) {
-  [...toList(periods)].sort(comparePeriodsByTime).forEach((period, index) => { period.order = index; });
+function computeTimeSortedOrder(periods) {
+  return [...toList(periods)].sort(comparePeriodsByTime).map((period, index) => ({ id: period.id, order: index }));
 }
 
-function movePeriod(periodId, direction) {
+async function persistPeriodOrder(orderList) {
+  await Promise.all(orderList.map(({ id: periodId, order }) => supabase.from("periods").update({ order }).eq("id", periodId)));
+}
+
+async function sortPeriodsByTime() {
+  await persistPeriodOrder(computeTimeSortedOrder(state.periods));
+  await loadAllData();
+}
+
+async function movePeriod(periodId, direction) {
   const periods = orderedPeriods();
   const index = periods.findIndex(period => period.id === periodId);
   const targetIndex = index + direction;
   if (index < 0 || targetIndex < 0 || targetIndex >= periods.length) return;
   [periods[index], periods[targetIndex]] = [periods[targetIndex], periods[index]];
-  periods.forEach((period, order) => { period.order = order; });
+  await persistPeriodOrder(periods.map((period, order) => ({ id: period.id, order })));
+  await loadAllData();
 }
 
 function dateDayName(date) {
@@ -1267,7 +1177,7 @@ function renderStudentForm(student = null) {
       </label>
       <label>전화번호 <input name="phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.phone || "")}" required /></label>
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리 자동 생성" /></label>
-      <label>비밀번호 <input name="password" value="${escapeHtml(student?.password || "")}" placeholder="비워두면 전화번호 뒤 4자리" /></label>
+      <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 전화번호 뒤 4자리로 자동 생성"}" /></label>
       <section class="panel stack curriculum-setup">
         <div><strong>학습 교재와 교육과정</strong><div class="muted small">각 교재마다 실제로 공부하는 학년과 학기를 따로 지정합니다.</div></div>
         <div class="material-plan-list">${toList(state.materials).map((material, index) => {
@@ -1318,7 +1228,7 @@ function renderTeacherForm(teacher = null) {
       </div>
       <label>전화번호 <input name="phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(teacher?.phone || "")}" required /></label>
       <label>권한 <select name="role"><option value="teacher" ${teacher?.role === "teacher" ? "selected" : ""}>강사</option><option value="deputy" ${teacher?.role === "deputy" ? "selected" : ""}>부원장</option><option value="admin" ${teacher?.role === "admin" ? "selected" : ""}>관리자</option></select></label>
-      <label>비밀번호 <input name="password" value="${escapeHtml(teacher?.password || "")}" placeholder="비워두면 전화번호 뒤 4자리" /></label>
+      <label>비밀번호${teacher ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${teacher ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 전화번호 뒤 4자리로 자동 생성"}" /></label>
       <div class="muted small">신규 강사의 초기 비밀번호는 전화번호 뒤 4자리로 자동 등록됩니다.</div>
       <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">${teacher ? "저장" : "등록"}</button></div>
     </form>
@@ -1787,11 +1697,11 @@ function handleGlobalInput(event) {
   }, 450);
 }
 
-function handleAction(event) {
+async function handleAction(event) {
   const action = event.currentTarget.dataset.action;
   const idValue = event.currentTarget.dataset.id;
   if (action === "logout") {
-    logout();
+    await logout();
     return;
   }
   if (action === "closeModal") modal = null;
@@ -1818,7 +1728,7 @@ function handleAction(event) {
   if (action === "openPeriodForm") modal = { type: "periodForm" };
   if (action === "openScheduleForm") modal = { type: "scheduleForm", scheduleSlots: [], scheduleStudentIds: [] };
   if (action === "openAcademicEventForm") modal = { type: "academicEventForm" };
-  if (action === "deleteAcademicEvent") state.academicEvents = toList(state.academicEvents).filter(item => item.id !== idValue);
+  if (action === "deleteAcademicEvent") await deleteAcademicEvent(idValue);
   if (action === "moveCalendarMonth") calendarMonth = moveMonth(calendarMonth, Number(event.currentTarget.dataset.delta));
   if (action === "goCalendarToday") calendarMonth = todayIso().slice(0, 7);
   if (action === "openCalendarDay") {
@@ -1851,25 +1761,24 @@ function handleAction(event) {
       schedule.period = event.currentTarget.dataset.periodName;
     }
   }
-  if (action === "confirmRecord") confirmRecord(idValue);
-  if (action === "confirmAssignment") confirmAssignment(idValue);
-  if (action === "toggleKeyword") toggleKeyword(idValue, event.currentTarget.dataset.keyword);
+  if (action === "confirmRecord") await confirmRecord(idValue);
+  if (action === "confirmAssignment") await confirmAssignment(idValue);
+  if (action === "toggleKeyword") await toggleKeyword(idValue, event.currentTarget.dataset.keyword);
   if (action === "moveStudentDate") {
     const records = toList(state.records).filter(r => toList(r.studentIds).includes(session.id) && !r.hidden);
     studentViewDate = moveToRecordDate(records, Number(event.currentTarget.dataset.days || 0));
   }
   if (action === "goToday") studentViewDate = todayIso();
-  if (action === "toggleRecordHidden") toggleRecordHidden(idValue);
-  if (action === "resetTeacherPassword") resetTeacherPassword(idValue);
-  if (action === "toggleStudent") toggleActive("students", idValue);
-  if (action === "toggleTeacher") toggleActive("teachers", idValue);
-  if (action === "togglePeriod") toggleActive("periods", idValue);
-  if (action === "movePeriodUp") movePeriod(idValue, -1);
-  if (action === "movePeriodDown") movePeriod(idValue, 1);
-  if (action === "sortPeriodsByTime") sortPeriodsByTime();
-  if (action === "deletePeriod") deletePeriod(idValue);
-  if (action === "deleteSchedule") deleteSchedule(idValue);
-  saveState();
+  if (action === "toggleRecordHidden") await toggleRecordHidden(idValue);
+  if (action === "resetTeacherPassword") await resetTeacherPassword(idValue);
+  if (action === "toggleStudent") await toggleActive("students", idValue);
+  if (action === "toggleTeacher") await toggleActive("teachers", idValue);
+  if (action === "togglePeriod") await toggleActive("periods", idValue);
+  if (action === "movePeriodUp") await movePeriod(idValue, -1);
+  if (action === "movePeriodDown") await movePeriod(idValue, 1);
+  if (action === "sortPeriodsByTime") await sortPeriodsByTime();
+  if (action === "deletePeriod") await deletePeriod(idValue);
+  if (action === "deleteSchedule") await deleteSchedule(idValue);
   render();
 }
 
@@ -1877,8 +1786,8 @@ function exportData() {
   const payload = {
     app: "eagle-math-app",
     exportedAt: new Date().toISOString(),
-    version: 1,
-    state: normalizeState(JSON.parse(JSON.stringify(state)))
+    version: 2,
+    state: JSON.parse(JSON.stringify(state))
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1893,115 +1802,85 @@ function exportData() {
 
 function importBackupFile(file) {
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const parsed = JSON.parse(reader.result);
-      const nextState = parsed?.state || parsed;
-      if (!nextState || typeof nextState !== "object") throw new Error("invalid");
-      if (!window.confirm("현재 브라우저에 저장된 데이터를 백업 파일 내용으로 바꿀까요?")) return;
-      state = normalizeState(nextState);
-      selectedStudents.clear();
-      modal = null;
-      saveState();
-      render();
-      showMessage("데이터 복원이 완료되었습니다.");
-    } catch {
-      showMessage("백업 파일을 읽지 못했습니다. JSON 파일인지 확인해주세요.");
-    }
-  };
-  reader.readAsText(file);
+  showMessage("이제 데이터는 서버(Supabase)에 저장됩니다. JSON 파일로 직접 복원하는 기능은 더 이상 지원하지 않아요. 복원이 필요하면 관리자에게 문의해주세요.");
 }
 
-function handleForm(form) {
+async function handleForm(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   let result;
-  if (form.dataset.form === "record") result = saveRecord(form.dataset.mode, data);
-  if (form.dataset.form === "student") result = addStudent(form, data);
-  if (form.dataset.form === "studentEdit") result = updateStudent(form, data);
-  if (form.dataset.form === "teacher") result = addTeacher(data);
-  if (form.dataset.form === "teacherEdit") result = updateTeacher(data);
-  if (form.dataset.form === "period") result = addPeriod(data);
-  if (form.dataset.form === "schedule") result = addSchedule(form);
-  if (form.dataset.form === "scheduleEdit") result = updateSchedule(form);
-  if (form.dataset.form === "academicEvent") result = addAcademicEvent(data);
-  if (form.dataset.form === "changePassword") result = changePassword(data);
+  if (form.dataset.form === "record") result = await saveRecord(form.dataset.mode, data);
+  else if (form.dataset.form === "student") result = await addStudent(form, data);
+  else if (form.dataset.form === "studentEdit") result = await updateStudent(form, data);
+  else if (form.dataset.form === "teacher") result = await addTeacher(data);
+  else if (form.dataset.form === "teacherEdit") result = await updateTeacher(data);
+  else if (form.dataset.form === "period") result = await addPeriod(data);
+  else if (form.dataset.form === "schedule") result = await addSchedule(form);
+  else if (form.dataset.form === "scheduleEdit") result = await updateSchedule(form);
+  else if (form.dataset.form === "academicEvent") result = await addAcademicEvent(data);
+  else if (form.dataset.form === "changePassword") result = await changePassword(data);
   if (result === false) return;
-  saveState();
   modal = null;
   render();
 }
 
-function saveRecord(mode, data) {
-  const now = new Date().toISOString();
+async function addStudyPlanIfMissing(studentId, material) {
+  const student = toList(state.students).find(s => s.id === studentId);
+  if (!student) return;
+  if (toList(student.studyPlans).some(plan => plan.material === material)) return;
+  const nextPlans = [...toList(student.studyPlans), { material, grade: student.schoolYear || "", term: "1학기" }];
+  await supabase.from("students").update({ study_plans: nextPlans }).eq("id", studentId);
+}
+
+async function saveRecord(mode, data) {
   const material = data.materialCustom?.trim() || data.material?.trim() || "";
   const unit = data.unit?.trim() || "";
   delete data.materialCustom;
-  state.materials = toList(state.materials);
-  state.units = toList(state.units);
-  if (material && !state.materials.includes(material)) state.materials.push(material);
-  if (unit && !state.units.includes(unit)) state.units.push(unit);
+  if (material) await supabase.from("materials").upsert({ name: material }, { onConflict: "name", ignoreDuplicates: true });
+  if (unit) await supabase.from("units").upsert({ name: unit }, { onConflict: "name", ignoreDuplicates: true });
+
   if (mode === "edit") {
     const record = toList(state.records).find(r => r.id === modal.recordId);
-    if (!record) return;
-    Object.assign(record, data, {
-      material, unit,
-      updatedBy: session.id,
-      updatedAt: now,
+    if (!record) return false;
+    const payload = {
+      lesson_date: data.lessonDate, period: data.period, lesson_type: data.lessonType,
+      attendance: data.attendance, homework: data.homework, focus: data.focus || null,
+      material: material || null, unit: unit || null,
+      content: data.content || null, assignment: data.assignment || null,
+      parent_message: data.parentMessage || null, student_message: data.studentMessage || null,
+      keywords: data.keywords || null, test_name: data.testName || null, next_plan: data.nextPlan || null,
       version: record.version + 1
-    });
-    state.confirmations = toList(state.confirmations).filter(c => c.recordId !== record.id);
-    if (material) toList(record.studentIds).forEach(studentId => {
-      const student = state.students.find(item => item.id === studentId);
-      if (student) {
-        student.currentMaterial = material;
-        student.materials = [...new Set([...toList(student.materials), material])];
-        if (!toList(student.studyPlans).some(plan => plan.material === material)) {
-          student.studyPlans = [...toList(student.studyPlans), { material, grade: student.schoolYear || "", term: "1학기" }];
-        }
-      }
-    });
+    };
+    const { error } = await supabase.from("lesson_records").update(payload).eq("id", record.id);
+    if (error) { showMessage(`기록 저장 실패: ${error.message}`); return false; }
+    await supabase.from("record_confirmations").delete().eq("record_id", record.id);
+    if (material) await addStudyPlanIfMissing(record.studentIds[0], material);
+    await loadAllData();
     return;
   }
+
   const studentIds = Array.from(selectedStudents);
-  if (!studentIds.length) return;
-  state.records = toList(state.records);
-  studentIds.forEach(studentId => {
-    state.records.push({
-      id: id("rec"),
-      studentIds: [studentId],
-      ...data,
-      content: data[`content_${studentId}`] ?? data.content,
-      assignment: data[`assignment_${studentId}`] ?? data.assignment,
-      parentMessage: data[`parentMessage_${studentId}`] ?? data.parentMessage,
-      studentMessage: data[`studentMessage_${studentId}`] ?? data.studentMessage,
-      keywords: data[`keywords_${studentId}`] ?? data.keywords,
-      testName: data[`testName_${studentId}`] ?? data.testName,
-      nextPlan: data[`nextPlan_${studentId}`] ?? data.nextPlan,
-      testScore: "",
-      material,
-      unit,
-      createdBy: session.id,
-      updatedBy: session.id,
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-      hidden: false,
-      hiddenBy: null,
-      hiddenAt: null
-    });
-    if (material) {
-      const student = state.students.find(item => item.id === studentId);
-      if (student) {
-        student.currentMaterial = material;
-        student.materials = [...new Set([...toList(student.materials), material])];
-        if (!toList(student.studyPlans).some(plan => plan.material === material)) {
-          student.studyPlans = [...toList(student.studyPlans), { material, grade: student.schoolYear || "", term: "1학기" }];
-        }
-      }
-    }
-  });
+  if (!studentIds.length) return false;
+  const groupId = crypto.randomUUID();
+  const rows = studentIds.map(studentId => ({
+    group_id: groupId, student_id: studentId,
+    lesson_date: data.lessonDate, period: data.period, lesson_type: data.lessonType,
+    attendance: data.attendance, homework: data.homework, focus: data.focus || null,
+    material: material || null, unit: unit || null,
+    content: data[`content_${studentId}`] ?? data.content ?? null,
+    assignment: data[`assignment_${studentId}`] ?? data.assignment ?? null,
+    parent_message: data[`parentMessage_${studentId}`] ?? data.parentMessage ?? null,
+    student_message: data[`studentMessage_${studentId}`] ?? data.studentMessage ?? null,
+    keywords: data[`keywords_${studentId}`] ?? data.keywords ?? null,
+    test_name: data[`testName_${studentId}`] ?? data.testName ?? null,
+    next_plan: data[`nextPlan_${studentId}`] ?? data.nextPlan ?? null
+  }));
+  const { error } = await supabase.from("lesson_records").insert(rows);
+  if (error) { showMessage(`기록 저장 실패: ${error.message}`); return false; }
+  if (material) {
+    for (const studentId of studentIds) await addStudyPlanIfMissing(studentId, material);
+  }
   selectedStudents.clear();
+  await loadAllData();
 }
 
 function readStudentScheduleForm(form) {
@@ -2034,12 +1913,18 @@ function readStudentPlans(form) {
   return plans;
 }
 
-function syncStudentSchedules(studentId, scheduleData) {
-  state.schedules = toList(state.schedules).filter(item => item.studentId !== studentId);
-  scheduleData.slots.forEach(slot => state.schedules.push({ id: id("sch"), studentId, day: slot.day, period: slot.period, teacherIds: scheduleData.teacherIds, lessonType: "정규" }));
+async function syncStudentSchedules(studentId, scheduleData) {
+  await supabase.from("schedules").delete().eq("student_id", studentId);
+  if (scheduleData.slots.length) {
+    const rows = scheduleData.slots.map(slot => ({
+      student_id: studentId, day: slot.day, period: slot.period,
+      lesson_type: "정규", teacher_ids: scheduleData.teacherIds
+    }));
+    await supabase.from("schedules").insert(rows);
+  }
 }
 
-function addStudent(form, data) {
+async function addStudent(form, data) {
   const scheduleData = readStudentScheduleForm(form);
   if (!scheduleData) return false;
   const studyPlans = readStudentPlans(form);
@@ -2049,78 +1934,78 @@ function addStudent(form, data) {
     showMessage("전화번호는 010-0000-0000 형식으로 입력해주세요.");
     return false;
   }
-  const tail = phoneTail(phone);
   const base = `${data.name.trim()}${data.birthday4.trim()}`;
   let loginId = data.loginId?.trim() || base;
   let count = 2;
-  state.students = toList(state.students);
-  while (state.students.some(s => s.loginId === loginId)) {
+  while (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
     loginId = `${base}-${count++}`;
   }
-  if (toList(state.teachers).some(t => t.loginId === loginId)) {
-    showMessage("같은 아이디를 쓰는 강사가 있습니다. 로그인 아이디를 직접 입력해주세요.");
-    return false;
-  }
-  const studentId = id("s");
-  state.students.push({
-    id: studentId,
-    name: data.name.trim(),
-    birthday4: data.birthday4.trim(),
-    schoolYear: data.schoolYear?.trim() || "",
-    phone,
-    loginId,
-    password: data.password?.trim() || tail,
-    studyPlans,
-    materials: studyPlans.map(plan => plan.material),
-    currentMaterial: studyPlans[0]?.material || "",
-    active: true
+  const { data: created, error } = await invokeAdmin("admin-create-user", {
+    role: "student", name: data.name.trim(), loginId, phone,
+    password: data.password?.trim() || "", birthday4: data.birthday4.trim(),
+    schoolYear: data.schoolYear?.trim() || "", studyPlans
   });
-  syncStudentSchedules(studentId, scheduleData);
+  if (error) { showMessage(`학생 등록 실패: ${error}`); return false; }
+  await syncStudentSchedules(created.id, scheduleData);
+  await loadAllData();
 }
 
-function updateStudent(form, data) {
+async function updateStudent(form, data) {
   const scheduleData = readStudentScheduleForm(form);
   if (!scheduleData) return false;
   const studyPlans = readStudentPlans(form);
   if (!studyPlans) return false;
   const student = toList(state.students).find(item => item.id === data.id);
-  if (!student) return;
+  if (!student) return false;
   const phone = formatPhone(data.phone);
   if (!isValidPhone(phone)) {
     showMessage("전화번호는 010-0000-0000 형식으로 입력해주세요.");
     return false;
   }
-  const tail = phoneTail(phone);
   const loginId = data.loginId?.trim() || `${data.name.trim()}${data.birthday4.trim()}`;
-  const duplicateStudent = toList(state.students).some(item => item.id !== student.id && item.loginId === loginId);
-  const duplicateTeacher = toList(state.teachers).some(item => item.loginId === loginId);
-  if (duplicateStudent || duplicateTeacher) {
+  const duplicate = toList(state.students).some(item => item.id !== student.id && item.loginId === loginId)
+    || toList(state.teachers).some(item => item.loginId === loginId);
+  if (duplicate) {
     showMessage("이미 사용 중인 로그인 아이디입니다.");
     return false;
   }
-  student.name = data.name.trim();
-  student.birthday4 = data.birthday4.trim();
-  student.schoolYear = data.schoolYear?.trim() || "";
-  student.phone = phone;
-  student.loginId = loginId;
-  student.password = data.password?.trim() || tail;
-  student.studyPlans = studyPlans;
-  student.materials = studyPlans.map(plan => plan.material);
-  student.currentMaterial = studyPlans[0]?.material || "";
-  syncStudentSchedules(student.id, scheduleData);
+  const { error: profileError } = await supabase.from("profiles").update({
+    name: data.name.trim(), login_id: loginId, phone
+  }).eq("id", student.id);
+  if (profileError) { showMessage(`학생 정보 저장 실패: ${profileError.message}`); return false; }
+  const { error: studentError } = await supabase.from("students").update({
+    birthday4: data.birthday4.trim(), school_year: data.schoolYear?.trim() || "", study_plans: studyPlans
+  }).eq("id", student.id);
+  if (studentError) { showMessage(`학생 정보 저장 실패: ${studentError.message}`); return false; }
+  if (data.password?.trim()) {
+    const { error: pwError } = await invokeAdmin("admin-reset-password", { userId: student.id, newPassword: data.password.trim() });
+    if (pwError) { showMessage(`비밀번호 변경 실패: ${pwError}`); return false; }
+  }
+  await syncStudentSchedules(student.id, scheduleData);
+  await loadAllData();
 }
 
-function addAcademicEvent(data) {
+async function addAcademicEvent(data) {
   if (data.endDate < data.startDate) {
     showMessage("종료일은 시작일보다 빠를 수 없습니다.");
     return false;
   }
-  state.academicEvents = toList(state.academicEvents);
-  state.academicEvents.push({ id: id("evt"), title: data.title.trim(), startDate: data.startDate, endDate: data.endDate, type: data.type, visibility: data.visibility, note: data.note?.trim() || "" });
+  const { error } = await supabase.from("academic_events").insert({
+    title: data.title.trim(), start_date: data.startDate, end_date: data.endDate,
+    type: data.type, visibility: data.visibility, note: data.note?.trim() || null
+  });
+  if (error) { showMessage(`학사일정 등록 실패: ${error.message}`); return false; }
+  await loadAllData();
 }
 
-function addTeacher(data) {
-  state.teachers = toList(state.teachers);
+async function deleteAcademicEvent(eventId) {
+  if (!canAdmin()) return;
+  const { error } = await supabase.from("academic_events").delete().eq("id", eventId);
+  if (error) showMessage(`삭제 실패: ${error.message}`);
+  await loadAllData();
+}
+
+async function addTeacher(data) {
   const loginId = data.loginId.trim();
   const phone = formatPhone(data.phone);
   if (!isValidPhone(phone)) {
@@ -2131,60 +2016,55 @@ function addTeacher(data) {
     showMessage("이미 사용 중인 로그인 아이디입니다.");
     return false;
   }
-  state.teachers.push({
-    id: id("t"),
-    name: data.name.trim(),
-    loginId,
-    phone,
-    password: data.password?.trim() || phoneTail(phone),
-    role: data.role,
-    mustChangePassword: data.role === "teacher",
-    active: true
+  const { error } = await invokeAdmin("admin-create-user", {
+    role: data.role, name: data.name.trim(), loginId, phone, password: data.password?.trim() || ""
   });
+  if (error) { showMessage(`강사 등록 실패: ${error}`); return false; }
+  await loadAllData();
 }
 
-function updateTeacher(data) {
+async function updateTeacher(data) {
   const teacher = toList(state.teachers).find(item => item.id === data.id);
-  if (!teacher) return;
+  if (!teacher) return false;
   const loginId = data.loginId.trim();
   const phone = formatPhone(data.phone);
   if (!isValidPhone(phone)) {
     showMessage("전화번호는 010-0000-0000 형식으로 입력해주세요.");
     return false;
   }
-  const duplicateTeacher = toList(state.teachers).some(item => item.id !== teacher.id && item.loginId === loginId);
-  const duplicateStudent = toList(state.students).some(item => item.loginId === loginId);
-  if (duplicateTeacher || duplicateStudent) {
+  const duplicate = toList(state.teachers).some(item => item.id !== teacher.id && item.loginId === loginId)
+    || toList(state.students).some(item => item.loginId === loginId);
+  if (duplicate) {
     showMessage("이미 사용 중인 로그인 아이디입니다.");
     return false;
   }
-  teacher.name = data.name.trim();
-  teacher.loginId = loginId;
-  teacher.phone = phone;
-  teacher.role = data.role;
-  if (data.password?.trim()) teacher.password = data.password.trim();
-  teacher.mustChangePassword = teacher.role === "teacher" && teacher.password === "1234";
+  const { error } = await supabase.from("profiles").update({
+    name: data.name.trim(), login_id: loginId, phone, role: data.role
+  }).eq("id", teacher.id);
+  if (error) { showMessage(`강사 정보 저장 실패: ${error.message}`); return false; }
+  if (data.password?.trim()) {
+    const { error: pwError } = await invokeAdmin("admin-reset-password", { userId: teacher.id, newPassword: data.password.trim() });
+    if (pwError) { showMessage(`비밀번호 변경 실패: ${pwError}`); return false; }
+  }
+  await loadAllData();
 }
 
-function addPeriod(data) {
-  state.periods = toList(state.periods);
+async function addPeriod(data) {
   const name = data.name.trim();
-  if (state.periods.some(period => period.name === name)) {
+  if (toList(state.periods).some(period => period.name === name)) {
     showMessage("이미 등록된 교시 이름입니다.");
     return false;
   }
-  state.periods.push({
-    id: id("p"),
-    name,
-    startTime: data.startTime || "",
-    endTime: data.endTime || "",
-    active: true,
-    order: state.periods.length
+  const { error } = await supabase.from("periods").insert({
+    name, start_time: data.startTime || null, end_time: data.endTime || null, order: state.periods.length
   });
-  sortPeriodsByTime();
+  if (error) { showMessage(`교시 등록 실패: ${error.message}`); return false; }
+  await loadAllData();
+  await persistPeriodOrder(computeTimeSortedOrder(state.periods));
+  await loadAllData();
 }
 
-function addSchedule(form) {
+async function addSchedule(form) {
   const fd = new FormData(form);
   const teacherIds = Array.from(form.elements.teacherIds.selectedOptions).map(o => o.value);
   if (!teacherIds.length) {
@@ -2211,133 +2091,160 @@ function addSchedule(form) {
     showMessage("배정할 요일/교시를 선택해주세요.");
     return false;
   }
-  state.schedules = toList(state.schedules);
+  const rows = [];
   studentIds.forEach(studentId => {
     slots.forEach(slot => {
-      state.schedules.push({
-        id: id("sch"),
-        studentId,
-        day: slot.day,
-        period: slot.period,
-        lessonType: fd.get("lessonType"),
-        teacherIds
-      });
+      rows.push({ student_id: studentId, day: slot.day, period: slot.period, lesson_type: fd.get("lessonType"), teacher_ids: teacherIds });
     });
   });
+  const { error } = await supabase.from("schedules").insert(rows);
+  if (error) { showMessage(`시간표 배정 실패: ${error.message}`); return false; }
   modal.scheduleStudentIds = studentIds;
+  await loadAllData();
 }
 
-function updateSchedule(form) {
+async function updateSchedule(form) {
   const fd = new FormData(form);
   const schedule = toList(state.schedules).find(item => item.id === fd.get("id"));
-  if (!schedule) return;
+  if (!schedule) return false;
   const teacherIds = Array.from(form.elements.teacherIds.selectedOptions).map(option => option.value);
   if (!teacherIds.length) {
     showMessage("담당 강사를 한 명 이상 선택해주세요.");
     return false;
   }
-  schedule.day = fd.get("day");
-  schedule.period = fd.get("period");
-  schedule.lessonType = fd.get("lessonType");
-  schedule.teacherIds = teacherIds;
+  const { error } = await supabase.from("schedules").update({
+    day: fd.get("day"), period: fd.get("period"), lesson_type: fd.get("lessonType"), teacher_ids: teacherIds
+  }).eq("id", schedule.id);
+  if (error) { showMessage(`시간표 수정 실패: ${error.message}`); return false; }
+  await loadAllData();
 }
 
-function changePassword(data) {
+async function changePassword(data) {
   if (data.password !== data.confirm) {
     showMessage("비밀번호 확인이 일치하지 않습니다.");
     return false;
   }
-  const teacher = toList(state.teachers).find(t => t.id === session.id);
-  teacher.password = data.password;
-  teacher.mustChangePassword = false;
+  if (data.password.length < 4) {
+    showMessage("비밀번호는 4자 이상이어야 합니다.");
+    return false;
+  }
+  const { error: authError } = await supabase.auth.updateUser({ password: data.password });
+  if (authError) { showMessage(`비밀번호 변경 실패: ${authError.message}`); return false; }
+  await supabase.rpc("complete_password_change");
   session.mustChangePassword = false;
+  await loadAllData();
 }
 
-function confirmRecord(recordId) {
+async function confirmRecord(recordId) {
   const record = toList(state.records).find(r => r.id === recordId);
   if (!record) return;
   const keywords = keywordList(record);
   const existing = getConfirmation(recordId, session.id);
   const checked = toList(existing?.keywords);
   if (keywords.length && !keywords.every(keyword => checked.includes(keyword))) return;
-  state.confirmations = toList(state.confirmations).filter(c => !(c.recordId === recordId && c.studentId === session.id));
-  state.confirmations.push({
-    ...(existing || {}),
-    id: existing?.id || id("con"),
-    recordId,
-    studentId: session.id,
-    version: record.version,
-    keywords: checked,
-    confirmedAt: new Date().toISOString()
-  });
+  const { error } = await supabase.from("record_confirmations").upsert({
+    record_id: recordId, student_id: session.id, version: record.version,
+    keywords: checked, confirmed_at: new Date().toISOString(),
+    assignment_confirmed: existing?.assignmentConfirmed || false,
+    assignment_confirmed_at: existing?.assignmentConfirmedAt || null
+  }, { onConflict: "record_id,student_id" });
+  if (error) { showMessage(`확인 처리 실패: ${error.message}`); return; }
+  await loadAllData();
 }
 
-function toggleKeyword(recordId, keyword) {
-  const record = toList(state.records).find(r => r.id === recordId);
-  if (!record) return;
+async function toggleKeyword(recordId, keyword) {
   const existing = getConfirmation(recordId, session.id);
   const checked = new Set(toList(existing?.keywords));
   checked.has(keyword) ? checked.delete(keyword) : checked.add(keyword);
-  state.confirmations = toList(state.confirmations).filter(c => !(c.recordId === recordId && c.studentId === session.id));
-  state.confirmations.push({ ...(existing || {}), id: existing?.id || id("con"), recordId, studentId: session.id, version: 0, keywords: Array.from(checked), confirmedAt: existing?.confirmedAt || null });
-}
-
-function confirmAssignment(recordId) {
-  const record = toList(state.records).find(r => r.id === recordId);
-  if (!record) return;
-  const existing = getConfirmation(recordId, session.id);
-  state.confirmations = toList(state.confirmations).filter(c => !(c.recordId === recordId && c.studentId === session.id));
-  state.confirmations.push({
-    ...(existing || {}),
-    id: existing?.id || id("con"),
-    recordId,
-    studentId: session.id,
+  const { error } = await supabase.from("record_confirmations").upsert({
+    record_id: recordId, student_id: session.id,
     version: existing?.version || 0,
-    assignmentConfirmed: true,
-    assignmentConfirmedAt: new Date().toISOString()
-  });
+    keywords: Array.from(checked),
+    confirmed_at: existing?.confirmedAt || null,
+    assignment_confirmed: existing?.assignmentConfirmed || false,
+    assignment_confirmed_at: existing?.assignmentConfirmedAt || null
+  }, { onConflict: "record_id,student_id" });
+  if (error) { showMessage(`처리 실패: ${error.message}`); return; }
+  await loadAllData();
 }
 
-function toggleRecordHidden(recordId) {
+async function confirmAssignment(recordId) {
+  const existing = getConfirmation(recordId, session.id);
+  const { error } = await supabase.from("record_confirmations").upsert({
+    record_id: recordId, student_id: session.id,
+    version: existing?.version || 0,
+    keywords: toList(existing?.keywords),
+    confirmed_at: existing?.confirmedAt || null,
+    assignment_confirmed: true,
+    assignment_confirmed_at: new Date().toISOString()
+  }, { onConflict: "record_id,student_id" });
+  if (error) { showMessage(`처리 실패: ${error.message}`); return; }
+  await loadAllData();
+}
+
+async function toggleRecordHidden(recordId) {
   if (!canAdmin()) return;
   const record = toList(state.records).find(r => r.id === recordId);
   if (!record) return;
-  record.hidden = !record.hidden;
-  record.hiddenBy = record.hidden ? session.id : null;
-  record.hiddenAt = record.hidden ? new Date().toISOString() : null;
+  const hidden = !record.hidden;
+  const { error } = await supabase.from("lesson_records").update({
+    hidden, hidden_by: hidden ? session.id : null, hidden_at: hidden ? new Date().toISOString() : null
+  }).eq("id", recordId);
+  if (error) { showMessage(`처리 실패: ${error.message}`); return; }
+  await loadAllData();
 }
 
-function resetTeacherPassword(teacherId) {
+async function resetTeacherPassword(teacherId) {
   if (!canAdmin()) return;
-  const teacher = toList(state.teachers).find(t => t.id === teacherId);
-  if (!teacher) return;
-  teacher.password = "1234";
-  teacher.mustChangePassword = teacher.role === "teacher";
+  const { error } = await invokeAdmin("admin-reset-password", { userId: teacherId, newPassword: "1234" });
+  if (error) { showMessage(`비밀번호 초기화 실패: ${error}`); return; }
+  await loadAllData();
+  showMessage("비밀번호가 1234로 초기화되었습니다.");
 }
 
-function toggleActive(collection, itemId) {
+async function toggleActive(collection, itemId) {
   if (!canAdmin()) return;
-  state[collection] = toList(state[collection]);
-  const item = state[collection].find(x => x.id === itemId);
+  const item = toList(state[collection]).find(x => x.id === itemId);
   if (!item) return;
-  item.active = !item.active;
+  const table = collection === "periods" ? "periods" : "profiles";
+  const { error } = await supabase.from(table).update({ active: !item.active }).eq("id", itemId);
+  if (error) { showMessage(`처리 실패: ${error.message}`); return; }
+  await loadAllData();
 }
 
-function deletePeriod(periodId) {
+async function deletePeriod(periodId) {
   if (!canAdmin()) return;
   const period = toList(state.periods).find(item => item.id === periodId);
   if (!period) return;
-  state.periods = toList(state.periods).filter(item => item.id !== periodId);
-  state.schedules = toList(state.schedules).filter(schedule => schedule.period !== period.name);
+  await supabase.from("schedules").delete().eq("period", period.name);
+  const { error } = await supabase.from("periods").delete().eq("id", periodId);
+  if (error) { showMessage(`삭제 실패: ${error.message}`); return; }
   if (selectedPeriod === period.name) {
     selectedPeriod = periodOptions()[0] || DEFAULT_PERIODS[0];
   }
+  await loadAllData();
 }
 
-function deleteSchedule(scheduleId) {
+async function deleteSchedule(scheduleId) {
   if (!canAdmin()) return;
-  state.schedules = toList(state.schedules).filter(schedule => schedule.id !== scheduleId);
+  const { error } = await supabase.from("schedules").delete().eq("id", scheduleId);
+  if (error) { showMessage(`삭제 실패: ${error.message}`); return; }
+  await loadAllData();
 }
 
-render();
-loadRemoteState();
+async function init() {
+  app.innerHTML = `<main class="login-page"><section class="login-box"><p class="muted">불러오는 중...</p></section></main>`;
+  const { data } = await supabase.auth.getSession();
+  if (data?.session) {
+    const ok = await establishSession(data.session.user.id);
+    if (ok) {
+      await loadAllData();
+    } else {
+      await supabase.auth.signOut();
+      session = null;
+    }
+  }
+  render();
+}
+
+init();
