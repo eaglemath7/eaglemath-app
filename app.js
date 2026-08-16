@@ -2135,6 +2135,11 @@ async function changePassword(data) {
   await loadAllData();
 }
 
+// 아래 세 함수는 학생/학부모가 같은 계정을 다른 기기에서 동시에 쓸 수 있다는 전제로,
+// 자기가 건드리는 컬럼만 upsert 페이로드에 넣습니다 — PostgREST upsert는 payload에 없는
+// 컬럼은 기존 행을 건드리지 않으므로, 다른 기기가 그 사이 바꾼 keywords 등을 덮어쓰지 않습니다.
+// keywords 자체를 바꾸는 toggleKeyword만 DB 함수(toggle_confirmation_keyword)로 원자적으로 처리합니다
+// (읽고-고치고-저장 방식은 두 기기가 1초 안에 서로 다른 키워드를 누르면 하나가 유실될 수 있어서).
 async function confirmRecord(recordId) {
   const record = toList(state.records).find(r => r.id === recordId);
   if (!record) return;
@@ -2144,37 +2149,26 @@ async function confirmRecord(recordId) {
   if (keywords.length && !keywords.every(keyword => checked.includes(keyword))) return;
   const { error } = await supabase.from("record_confirmations").upsert({
     record_id: recordId, student_id: session.id, version: record.version,
-    keywords: checked, confirmed_at: new Date().toISOString(),
-    assignment_confirmed: existing?.assignmentConfirmed || false,
-    assignment_confirmed_at: existing?.assignmentConfirmedAt || null
+    confirmed_at: new Date().toISOString()
   }, { onConflict: "record_id,student_id" });
   if (error) { showMessage(`확인 처리 실패: ${error.message}`); return; }
   await loadAllData();
 }
 
 async function toggleKeyword(recordId, keyword) {
-  const existing = getConfirmation(recordId, session.id);
-  const checked = new Set(toList(existing?.keywords));
-  checked.has(keyword) ? checked.delete(keyword) : checked.add(keyword);
-  const { error } = await supabase.from("record_confirmations").upsert({
-    record_id: recordId, student_id: session.id,
-    version: existing?.version || 0,
-    keywords: Array.from(checked),
-    confirmed_at: existing?.confirmedAt || null,
-    assignment_confirmed: existing?.assignmentConfirmed || false,
-    assignment_confirmed_at: existing?.assignmentConfirmedAt || null
-  }, { onConflict: "record_id,student_id" });
+  const { error } = await supabase.rpc("toggle_confirmation_keyword", {
+    p_record_id: recordId, p_keyword: keyword
+  });
   if (error) { showMessage(`처리 실패: ${error.message}`); return; }
   await loadAllData();
 }
 
 async function confirmAssignment(recordId) {
+  const record = toList(state.records).find(r => r.id === recordId);
   const existing = getConfirmation(recordId, session.id);
   const { error } = await supabase.from("record_confirmations").upsert({
     record_id: recordId, student_id: session.id,
-    version: existing?.version || 0,
-    keywords: toList(existing?.keywords),
-    confirmed_at: existing?.confirmedAt || null,
+    version: record?.version ?? existing?.version ?? 0,
     assignment_confirmed: true,
     assignment_confirmed_at: new Date().toISOString()
   }, { onConflict: "record_id,student_id" });
