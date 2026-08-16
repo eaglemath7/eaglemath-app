@@ -70,6 +70,8 @@ let calendarMonth = todayIso().slice(0, 7);
 let syncStatus = "로컬 저장";
 let remoteLoaded = false;
 let saveTimer = null;
+let remoteSaveInFlight = false;
+let remoteSavePending = false;
 
 window.addEventListener("error", (event) => {
   const message = event.message || "알 수 없는 오류";
@@ -292,24 +294,36 @@ function scheduleRemoteSave(delay = 500) {
 
 async function saveRemoteState() {
   if (!supabaseReady()) return;
-  try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?on_conflict=id`, {
-      method: "POST",
-      headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
-      body: JSON.stringify({
-        id: SUPABASE_STATE_ID,
-        data: normalizeState(JSON.parse(JSON.stringify(state))),
-        updated_at: new Date().toISOString()
-      })
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`${response.status}${text ? ` ${text.slice(0, 80)}` : ""}`);
-    }
-    syncStatus = "Supabase 저장됨";
-  } catch (error) {
-    syncStatus = `로컬 저장 · Supabase 저장 실패 ${error.message || ""}`.trim();
+  if (remoteSaveInFlight) {
+    remoteSavePending = true;
+    return;
   }
+  remoteSaveInFlight = true;
+  do {
+    remoteSavePending = false;
+    const snapshot = normalizeState(JSON.parse(JSON.stringify(state)));
+    syncStatus = "Supabase 저장 중";
+    if (remoteLoaded) render();
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?on_conflict=id`, {
+        method: "POST",
+        headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+        body: JSON.stringify({
+          id: SUPABASE_STATE_ID,
+          data: snapshot,
+          updated_at: new Date().toISOString()
+        })
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`${response.status}${text ? ` ${text.slice(0, 80)}` : ""}`);
+      }
+      syncStatus = "Supabase 저장됨";
+    } catch (error) {
+      syncStatus = `로컬 저장 · Supabase 저장 실패 ${error.message || ""}`.trim();
+    }
+  } while (remoteSavePending);
+  remoteSaveInFlight = false;
   if (remoteLoaded) render();
 }
 
