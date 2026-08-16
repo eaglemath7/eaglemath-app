@@ -736,6 +736,7 @@ function renderAdmin() {
                   <td>${escapeHtml(s.phone)}</td>
                   <td class="toolbar">
                     <button data-action="editStudent" data-id="${s.id}">수정</button>
+                    <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
                     <button data-action="toggleStudent" data-id="${s.id}">${s.active ? "숨김" : "복구"}</button>
                   </td>
                 </tr>
@@ -756,7 +757,7 @@ function renderAdmin() {
                   <td>${roleName(t.role)}</td>
                   <td class="toolbar">
                     <button data-action="editTeacher" data-id="${t.id}">수정</button>
-                    <button data-action="resetTeacherPassword" data-id="${t.id}">1234 초기화</button>
+                    <button data-action="resetPassword" data-id="${t.id}">1234 초기화</button>
                     <button data-action="toggleTeacher" data-id="${t.id}">${t.active ? "숨김" : "복구"}</button>
                   </td>
                 </tr>
@@ -795,6 +796,7 @@ function renderStudent() {
   const dayRecords = records.filter(record => record.lessonDate === studentViewDate);
   return `
     <div class="grid">
+      ${session.mustChangePassword ? renderPasswordPanel() : ""}
       ${renderCalendar({ studentId: session.id, parentView: true })}
       <section class="panel stack">
         <div class="between">
@@ -1177,7 +1179,7 @@ function renderStudentForm(student = null) {
       </label>
       <label>전화번호 <input name="phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.phone || "")}" required /></label>
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리 자동 생성" /></label>
-      <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 전화번호 뒤 4자리로 자동 생성"}" /></label>
+      <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
       <section class="panel stack curriculum-setup">
         <div><strong>학습 교재와 교육과정</strong><div class="muted small">각 교재마다 실제로 공부하는 학년과 학기를 따로 지정합니다.</div></div>
         <div class="material-plan-list">${toList(state.materials).map((material, index) => {
@@ -1228,8 +1230,8 @@ function renderTeacherForm(teacher = null) {
       </div>
       <label>전화번호 <input name="phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(teacher?.phone || "")}" required /></label>
       <label>권한 <select name="role"><option value="teacher" ${teacher?.role === "teacher" ? "selected" : ""}>강사</option><option value="deputy" ${teacher?.role === "deputy" ? "selected" : ""}>부원장</option><option value="admin" ${teacher?.role === "admin" ? "selected" : ""}>관리자</option></select></label>
-      <label>비밀번호${teacher ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${teacher ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 전화번호 뒤 4자리로 자동 생성"}" /></label>
-      <div class="muted small">신규 강사의 초기 비밀번호는 전화번호 뒤 4자리로 자동 등록됩니다.</div>
+      <label>비밀번호${teacher ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${teacher ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
+      <div class="muted small">신규 계정의 초기 비밀번호는 1234이며, 최초 로그인 시 비밀번호 변경 화면이 뜹니다.</div>
       <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">${teacher ? "저장" : "등록"}</button></div>
     </form>
   `;
@@ -1770,7 +1772,7 @@ async function handleAction(event) {
   }
   if (action === "goToday") studentViewDate = todayIso();
   if (action === "toggleRecordHidden") await toggleRecordHidden(idValue);
-  if (action === "resetTeacherPassword") await resetTeacherPassword(idValue);
+  if (action === "resetPassword") await resetPassword(idValue);
   if (action === "toggleStudent") await toggleActive("students", idValue);
   if (action === "toggleTeacher") await toggleActive("teachers", idValue);
   if (action === "togglePeriod") await toggleActive("periods", idValue);
@@ -2188,9 +2190,9 @@ async function toggleRecordHidden(recordId) {
   await loadAllData();
 }
 
-async function resetTeacherPassword(teacherId) {
+async function resetPassword(userId) {
   if (!canAdmin()) return;
-  const { error } = await invokeAdmin("admin-reset-password", { userId: teacherId, newPassword: "1234" });
+  const { error } = await invokeAdmin("admin-reset-password", { userId, newPassword: "1234" });
   if (error) { showMessage(`비밀번호 초기화 실패: ${error}`); return; }
   await loadAllData();
   showMessage("비밀번호가 1234로 초기화되었습니다.");

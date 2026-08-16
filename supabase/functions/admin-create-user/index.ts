@@ -86,8 +86,7 @@ Deno.serve(async (req) => {
     }
 
     const email = loginIdToEmail(loginId);
-    const phoneTail = phone.replace(/\D/g, "").slice(-4);
-    const finalPassword = password || phoneTail || "1234";
+    const finalPassword = password || "1234";
     if (finalPassword.length < 4) return jsonResponse({ error: "password must be 4+ chars" }, 400);
 
     const { data: created, error: createError } = await adminClient.auth.admin.createUser({
@@ -113,7 +112,7 @@ Deno.serve(async (req) => {
       login_id: loginId,
       phone: phone || null,
       active: true,
-      must_change_password: role === "teacher",
+      must_change_password: role !== "admin" && role !== "deputy",
     });
     if (profileError) {
       await adminClient.auth.admin.deleteUser(userId);
