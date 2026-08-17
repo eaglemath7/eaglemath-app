@@ -1006,6 +1006,7 @@ function renderModal() {
     editScheduleForm: () => renderEditScheduleForm(toList(state.schedules).find(s => s.id === modal.scheduleId)),
     periodManager: () => renderPeriodManager(),
     periodForm: () => renderPeriodForm(),
+    editPeriodForm: () => renderPeriodForm(false, toList(state.periods).find(p => p.id === modal.periodId)),
     scheduleForm: () => renderScheduleForm(),
     bulkMaterialForm: () => renderBulkMaterialForm(),
     academicEventForm: () => renderAcademicEventForm(),
@@ -1283,6 +1284,7 @@ function renderPeriodTable() {
             <td>${escapeHtml(p.name)} ${!p.active ? `<span class="badge bad">숨김</span>` : ""}</td>
             <td>${escapeHtml([p.startTime, p.endTime].filter(Boolean).join(" ~ ") || "시간 미지정")}</td>
             <td class="toolbar">
+              <button data-action="editPeriod" data-id="${p.id}">수정</button>
               <button title="위로 이동" aria-label="${escapeHtml(p.name)} 위로 이동" data-action="movePeriodUp" data-id="${p.id}">↑</button>
               <button title="아래로 이동" aria-label="${escapeHtml(p.name)} 아래로 이동" data-action="movePeriodDown" data-id="${p.id}">↓</button>
               <button data-action="togglePeriod" data-id="${p.id}">${p.active ? "숨김" : "복구"}</button>
@@ -1308,19 +1310,20 @@ function renderPeriodManager() {
   `;
 }
 
-function renderPeriodForm(compact = false) {
+function renderPeriodForm(compact = false, period = null) {
   return `
-    <form class="stack" data-form="period">
+    <form class="stack" data-form="${period ? "periodEdit" : "period"}">
       <div class="between">
-        <h2 class="section-title">교시/시간 생성</h2>
+        <h2 class="section-title">${period ? "교시/시간 수정" : "교시/시간 생성"}</h2>
         ${compact ? "" : `<button type="button" data-action="closeModal">닫기</button>`}
       </div>
+      ${period ? `<input type="hidden" name="id" value="${period.id}" />` : ""}
       <div class="grid three">
-        <label>교시 이름 <input name="name" placeholder="예: 7교시 또는 토요보충" required /></label>
-        <label>시작 시간 <input name="startTime" type="time" /></label>
-        <label>종료 시간 <input name="endTime" type="time" /></label>
+        <label>교시 이름 <input name="name" placeholder="예: 7교시 또는 토요보충" value="${escapeHtml(period?.name || "")}" required /></label>
+        <label>시작 시간 <input name="startTime" type="time" value="${escapeHtml(period?.startTime || "")}" /></label>
+        <label>종료 시간 <input name="endTime" type="time" value="${escapeHtml(period?.endTime || "")}" /></label>
       </div>
-      <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">생성</button></div>
+      <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">${period ? "저장" : "생성"}</button></div>
     </form>
   `;
 }
@@ -1802,6 +1805,7 @@ async function handleAction(event) {
   if (action === "editTeacher") modal = { type: "editTeacherForm", teacherId: idValue };
   if (action === "openPeriodManager") modal = { type: "periodManager" };
   if (action === "openPeriodForm") modal = { type: "periodForm" };
+  if (action === "editPeriod") modal = { type: "editPeriodForm", periodId: idValue };
   if (action === "openScheduleForm") modal = { type: "scheduleForm", scheduleSlots: [], scheduleStudentIds: [] };
   if (action === "openBulkMaterialForm") modal = { type: "bulkMaterialForm", materialStudentIds: [] };
   if (action === "openAcademicEventForm") modal = { type: "academicEventForm" };
@@ -1891,6 +1895,7 @@ async function handleForm(form) {
   else if (form.dataset.form === "teacher") result = await addTeacher(data);
   else if (form.dataset.form === "teacherEdit") result = await updateTeacher(data);
   else if (form.dataset.form === "period") result = await addPeriod(data);
+  else if (form.dataset.form === "periodEdit") result = await updatePeriod(data);
   else if (form.dataset.form === "schedule") result = await addSchedule(form);
   else if (form.dataset.form === "scheduleEdit") result = await updateSchedule(form);
   else if (form.dataset.form === "bulkMaterial") result = await applyBulkMaterial(data);
@@ -2153,6 +2158,25 @@ async function addPeriod(data) {
   if (error) { showMessage(`교시 등록 실패: ${error.message}`); return false; }
   await loadAllData();
   await persistPeriodOrder(computeTimeSortedOrder(state.periods));
+  await loadAllData();
+}
+
+async function updatePeriod(data) {
+  const period = toList(state.periods).find(p => p.id === data.id);
+  if (!period) return false;
+  const name = data.name.trim();
+  const duplicate = toList(state.periods).some(p => p.id !== data.id && p.name === name);
+  if (duplicate) { showMessage("이미 등록된 교시 이름입니다."); return false; }
+  const { error } = await supabase.from("periods").update({
+    name, start_time: data.startTime || null, end_time: data.endTime || null
+  }).eq("id", data.id);
+  if (error) { showMessage(`교시 수정 실패: ${error.message}`); return false; }
+  // 이름이 바뀌면, 그 이름을 텍스트로 물고 있는 기존 시간표/수업기록도 같이 바꿔줘야
+  // 배정된 시간표가 유령처럼 남는 걸 막을 수 있어요.
+  if (name !== period.name) {
+    await supabase.from("schedules").update({ period: name }).eq("period", period.name);
+    await supabase.from("lesson_records").update({ period: name }).eq("period", period.name);
+  }
   await loadAllData();
 }
 
