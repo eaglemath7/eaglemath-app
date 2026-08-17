@@ -733,6 +733,7 @@ function renderAdmin() {
           <div class="toolbar">
             <button class="primary" data-action="openStudentForm">학생 등록</button>
             <button class="blue" data-action="openTeacherForm">강사 등록</button>
+            <button data-action="openStudentExcelImport">엑셀로 학생 일괄 등록</button>
             <button data-action="openPeriodManager">교시/시간 관리</button>
             <button data-action="openScheduleForm">시간표 배정</button>
             <button data-action="openBulkMaterialForm">교재 일괄 설정</button>
@@ -740,6 +741,7 @@ function renderAdmin() {
             <button data-action="exportData">데이터 백업</button>
             <button data-action="importData">데이터 복원</button>
             <input class="visually-hidden" id="dataImportInput" type="file" accept="application/json" data-action="loadBackupFile" />
+            <input class="visually-hidden" id="studentExcelInput" type="file" accept=".xlsx,.xls,.csv" data-action="loadStudentExcelFile" />
           </div>
         </div>
       </section>
@@ -1009,6 +1011,7 @@ function renderModal() {
     editPeriodForm: () => renderPeriodForm(false, toList(state.periods).find(p => p.id === modal.periodId)),
     scheduleForm: () => renderScheduleForm(),
     bulkMaterialForm: () => renderBulkMaterialForm(),
+    studentImport: () => renderStudentImportModal(),
     academicEventForm: () => renderAcademicEventForm(),
     calendarDay: () => renderCalendarDay()
   };
@@ -1514,6 +1517,11 @@ function handleNonRenderingAction(button) {
     return true;
   }
 
+  if (action === "openStudentExcelImport") {
+    document.getElementById("studentExcelInput")?.click();
+    return true;
+  }
+
   if (action === "buildAiPrompt") {
     buildAiPrompt(button);
     return true;
@@ -1721,6 +1729,13 @@ function handleGlobalInput(event) {
     return;
   }
 
+  const excelFile = event.target.closest("input[data-action='loadStudentExcelFile']");
+  if (excelFile) {
+    handleStudentExcelFile(excelFile.files?.[0]);
+    excelFile.value = "";
+    return;
+  }
+
   const individualField = event.target.closest("[data-individual-field]");
   if (individualField) {
     individualField.dataset.dirty = "true";
@@ -1807,6 +1822,11 @@ async function handleAction(event) {
   if (action === "editPeriod") modal = { type: "editPeriodForm", periodId: idValue };
   if (action === "openScheduleForm") modal = { type: "scheduleForm", scheduleSlots: [], scheduleStudentIds: [] };
   if (action === "openBulkMaterialForm") modal = { type: "bulkMaterialForm", materialStudentIds: [] };
+  if (action === "confirmStudentImport") {
+    const rows = toList(modal.rows).filter(r => r.ok).map(r => r.data);
+    modal = null;
+    await importStudentsFromRows(rows);
+  }
   if (action === "openAcademicEventForm") modal = { type: "academicEventForm" };
   if (action === "deleteAcademicEvent") await deleteAcademicEvent(idValue);
   if (action === "moveCalendarMonth") calendarMonth = moveMonth(calendarMonth, Number(event.currentTarget.dataset.delta));
@@ -1883,6 +1903,120 @@ function exportData() {
 function importBackupFile(file) {
   if (!file) return;
   showMessage("이제 데이터는 서버(Supabase)에 저장됩니다. JSON 파일로 직접 복원하는 기능은 더 이상 지원하지 않아요. 복원이 필요하면 관리자에게 문의해주세요.");
+}
+
+// 엑셀(.xlsx/.xls/.csv)로 학생을 한 번에 여러 명 등록하는 기능. 무거운 파싱 라이브러리는
+// 이 기능을 실제로 쓸 때만(관리자가 파일을 고를 때) 불러옵니다 — 다른 사용자는 이 코드를
+// 아예 안 받아도 되니까요.
+const STUDENT_EXCEL_HEADERS = ["이름", "생일4자리", "학년", "학교명", "학생휴대폰", "학부모휴대폰", "관계", "학부모성함", "아이디", "비밀번호"];
+
+async function handleStudentExcelFile(file) {
+  if (!file) return;
+  showMessage("파일을 읽는 중이에요. 잠시만요...");
+  try {
+    const XLSX = await import("https://esm.sh/xlsx@0.18.5");
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    if (!rawRows.length) {
+      showMessage("엑셀에서 읽을 데이터가 없어요. 첫 줄이 헤더(이름, 학부모휴대폰 등)인지 확인해주세요.");
+      return;
+    }
+    const rows = rawRows.map(parseStudentExcelRow);
+    modal = { type: "studentImport", rows };
+    render();
+  } catch (err) {
+    showMessage(`엑셀 파일을 읽지 못했어요: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function parseStudentExcelRow(raw) {
+  const get = (key) => String(raw[key] ?? "").trim();
+  const name = get("이름");
+  const parentPhone = formatPhone(get("학부모휴대폰"));
+  const studentPhoneRaw = get("학생휴대폰");
+  const studentPhone = studentPhoneRaw ? formatPhone(studentPhoneRaw) : "";
+
+  const data = {
+    name,
+    birthday4: get("생일4자리"),
+    schoolYear: get("학년"),
+    schoolName: get("학교명"),
+    studentPhone,
+    parentPhone,
+    parentRelation: get("관계"),
+    parentName: get("학부모성함"),
+    loginId: get("아이디"),
+    password: get("비밀번호")
+  };
+
+  if (!name) return { ok: false, reason: "이름이 없어요", data };
+  if (!parentPhone || !isValidPhone(parentPhone)) return { ok: false, reason: "학부모휴대폰이 010-0000-0000 형식이 아니에요", data };
+  if (studentPhoneRaw && !isValidPhone(studentPhone)) return { ok: false, reason: "학생휴대폰 형식이 잘못됐어요", data };
+  return { ok: true, reason: "", data };
+}
+
+function renderStudentImportModal() {
+  const rows = toList(modal.rows);
+  const validCount = rows.filter(r => r.ok).length;
+  return `
+    <div class="stack">
+      <div class="between"><h2 class="section-title">엑셀로 학생 일괄 등록</h2><button type="button" data-action="closeModal">닫기</button></div>
+      <div class="muted small">
+        헤더 예시: ${STUDENT_EXCEL_HEADERS.join(", ")} (이름·학부모휴대폰만 필수, 나머지는 비워도 됩니다)
+      </div>
+      <div class="muted small">${rows.length}행 중 <strong>${validCount}명 등록 가능</strong>${rows.length - validCount ? `, ${rows.length - validCount}행은 오류로 제외됩니다` : ""}</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>이름</th><th>학부모휴대폰</th><th>상태</th></tr></thead>
+          <tbody>${rows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.data.name || "-")}</td>
+              <td>${escapeHtml(r.data.parentPhone || "-")}</td>
+              <td>${r.ok ? `<span class="badge good">등록 가능</span>` : `<span class="badge bad">${escapeHtml(r.reason)}</span>`}</td>
+            </tr>
+          `).join("")}</tbody>
+        </table>
+      </div>
+      <div class="form-actions">
+        <button type="button" data-action="closeModal">취소</button>
+        <button type="button" class="primary" data-action="confirmStudentImport" ${validCount ? "" : "disabled"}>${validCount}명 등록 시작</button>
+      </div>
+    </div>
+  `;
+}
+
+async function importStudentsFromRows(rows) {
+  // 같은 파일 안에 이름이 겹치는 학생이 있어도 안전하게 -2, -3을 붙이려고,
+  // 매번 서버에 다시 물어보지 않고 이번 배치 안에서 쓴 아이디를 직접 추적합니다.
+  const usedLoginIds = new Set([
+    ...toList(state.students).map(s => s.loginId),
+    ...toList(state.teachers).map(t => t.loginId)
+  ]);
+  let success = 0;
+  const failures = [];
+  for (const row of rows) {
+    const base = row.name;
+    let loginId = row.loginId || base;
+    let count = 2;
+    while (usedLoginIds.has(loginId)) {
+      loginId = `${base}-${count++}`;
+    }
+    usedLoginIds.add(loginId);
+    const { error } = await invokeAdmin("admin-create-user", {
+      role: "student", name: row.name, loginId, password: row.password || "",
+      birthday4: row.birthday4 || "", schoolYear: row.schoolYear || "", schoolName: row.schoolName || "",
+      studentPhone: row.studentPhone || "", parentPhone: row.parentPhone,
+      parentName: row.parentName || "", parentRelation: row.parentRelation || "", studyPlans: []
+    });
+    if (error) failures.push(`${row.name}: ${error}`);
+    else success++;
+  }
+  await loadAllData();
+  const summary = [`${success}명 등록 완료`];
+  if (failures.length) summary.push(`실패 ${failures.length}건:\n${failures.join("\n")}`);
+  showMessage(summary.join("\n\n"));
 }
 
 async function handleForm(form) {
