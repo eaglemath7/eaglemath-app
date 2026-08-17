@@ -1278,11 +1278,10 @@ function renderPeriodTable() {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>시간</th><th>이름</th><th></th></tr></thead>
+        <thead><tr><th>시간</th><th></th></tr></thead>
         <tbody>${periods.map(p => `
           <tr>
             <td>${periodTimeLabel(p.name)} ${!p.active ? `<span class="badge bad">숨김</span>` : ""}</td>
-            <td><span class="muted small">${escapeHtml(p.name)}</span></td>
             <td class="toolbar">
               <button data-action="editPeriod" data-id="${p.id}">수정</button>
               <button title="위로 이동" aria-label="${escapeHtml(p.name)} 위로 이동" data-action="movePeriodUp" data-id="${p.id}">↑</button>
@@ -1318,11 +1317,11 @@ function renderPeriodForm(compact = false, period = null) {
         ${compact ? "" : `<button type="button" data-action="closeModal">닫기</button>`}
       </div>
       ${period ? `<input type="hidden" name="id" value="${period.id}" />` : ""}
-      <div class="grid three">
-        <label>교시 이름 <input name="name" placeholder="예: 7교시 또는 토요보충" value="${escapeHtml(period?.name || "")}" required /></label>
-        <label>시작 시간 <input name="startTime" type="time" value="${escapeHtml(period?.startTime || "")}" /></label>
-        <label>종료 시간 <input name="endTime" type="time" value="${escapeHtml(period?.endTime || "")}" /></label>
+      <div class="grid two">
+        <label>시작 시간 <input name="startTime" type="time" value="${escapeHtml(period?.startTime || "")}" required /></label>
+        <label>종료 시간 <input name="endTime" type="time" value="${escapeHtml(period?.endTime || "")}" required /></label>
       </div>
+      <div class="muted small">이름은 시작-종료 시간으로 자동 생성돼요 (예: 1300-1350).</div>
       <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">${period ? "저장" : "생성"}</button></div>
     </form>
   `;
@@ -2146,14 +2145,22 @@ async function updateTeacher(data) {
   await loadAllData();
 }
 
+// 시작-종료 시간으로 교시 이름을 자동 생성합니다 (예: "13:00"+"13:50" -> "1300-1350").
+function periodNameFromTimes(startTime, endTime) {
+  return `${startTime.replace(":", "")}-${endTime.replace(":", "")}`;
+}
+
 async function addPeriod(data) {
-  const name = data.name.trim();
+  const startTime = data.startTime?.trim();
+  const endTime = data.endTime?.trim();
+  if (!startTime || !endTime) { showMessage("시작 시간과 종료 시간을 모두 입력해주세요."); return false; }
+  const name = periodNameFromTimes(startTime, endTime);
   if (toList(state.periods).some(period => period.name === name)) {
-    showMessage("이미 등록된 교시 이름입니다.");
+    showMessage("이미 등록된 시간대입니다.");
     return false;
   }
   const { error } = await supabase.from("periods").insert({
-    name, start_time: data.startTime || null, end_time: data.endTime || null, order: state.periods.length
+    name, start_time: startTime, end_time: endTime, order: state.periods.length
   });
   if (error) { showMessage(`교시 등록 실패: ${error.message}`); return false; }
   await loadAllData();
@@ -2164,11 +2171,14 @@ async function addPeriod(data) {
 async function updatePeriod(data) {
   const period = toList(state.periods).find(p => p.id === data.id);
   if (!period) return false;
-  const name = data.name.trim();
+  const startTime = data.startTime?.trim();
+  const endTime = data.endTime?.trim();
+  if (!startTime || !endTime) { showMessage("시작 시간과 종료 시간을 모두 입력해주세요."); return false; }
+  const name = periodNameFromTimes(startTime, endTime);
   const duplicate = toList(state.periods).some(p => p.id !== data.id && p.name === name);
-  if (duplicate) { showMessage("이미 등록된 교시 이름입니다."); return false; }
+  if (duplicate) { showMessage("이미 등록된 시간대입니다."); return false; }
   const { error } = await supabase.from("periods").update({
-    name, start_time: data.startTime || null, end_time: data.endTime || null
+    name, start_time: startTime, end_time: endTime
   }).eq("id", data.id);
   if (error) { showMessage(`교시 수정 실패: ${error.message}`); return false; }
   // 이름이 바뀌면, 그 이름을 텍스트로 물고 있는 기존 시간표/수업기록도 같이 바꿔줘야
