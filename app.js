@@ -735,6 +735,7 @@ function renderAdmin() {
             <button class="blue" data-action="openTeacherForm">강사 등록</button>
             <button data-action="openPeriodManager">교시/시간 관리</button>
             <button data-action="openScheduleForm">시간표 배정</button>
+            <button data-action="openBulkMaterialForm">교재 일괄 설정</button>
             <button data-action="openAcademicEventForm">학사일정 등록</button>
             <button data-action="exportData">데이터 백업</button>
             <button data-action="importData">데이터 복원</button>
@@ -1006,6 +1007,7 @@ function renderModal() {
     periodManager: () => renderPeriodManager(),
     periodForm: () => renderPeriodForm(),
     scheduleForm: () => renderScheduleForm(),
+    bulkMaterialForm: () => renderBulkMaterialForm(),
     academicEventForm: () => renderAcademicEventForm(),
     calendarDay: () => renderCalendarDay()
   };
@@ -1430,6 +1432,33 @@ function renderEditScheduleForm(schedule = {}) {
   `;
 }
 
+function renderBulkMaterialForm() {
+  const selectedStudentIds = toList(modal.materialStudentIds);
+  const activeStudents = toList(state.students).filter(s => s.active);
+  return `
+    <form class="stack" data-form="bulkMaterial">
+      <div class="between"><h2 class="section-title">교재 일괄 설정</h2><button type="button" data-action="closeModal">닫기</button></div>
+      <label>학생 중복 선택
+        <div class="student-picker">
+          ${activeStudents.map(student => `<button type="button" class="student-button ${selectedStudentIds.includes(student.id) ? "selected" : ""}" data-action="pickMaterialStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${escapeHtml(student.schoolYear || student.loginId)}</span></button>`).join("")}
+        </div>
+        <input type="hidden" name="studentIds" value="${escapeHtml(JSON.stringify(selectedStudentIds))}" />
+        <div class="muted small" data-material-count>${selectedStudentIds.length}명 선택됨</div>
+      </label>
+      <div class="grid two">
+        <label>교재명 <select name="material"><option value="">선택 안 함</option>${toList(state.materials).map(m => `<option>${escapeHtml(m)}</option>`).join("")}</select></label>
+        <label>교재 직접입력 <input name="materialCustom" placeholder="목록에 없으면 입력" /></label>
+      </div>
+      <div class="grid two">
+        <label>학년 <select name="grade" required><option value="">학년 선택</option>${GRADES.map(g => `<option>${g}</option>`).join("")}</select></label>
+        <label>학기 <select name="term">${TERMS.map(t => `<option>${t}</option>`).join("")}</select></label>
+      </div>
+      <div class="muted small">선택한 학생 전원에게 이 교재·학년·학기가 적용됩니다. 그 학생이 이미 갖고 있던 다른 교재는 그대로 유지되고, 같은 교재가 이미 있으면 학년·학기만 갱신돼요.</div>
+      <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">적용</button></div>
+    </form>
+  `;
+}
+
 function bindRouteEvents() {
   ensureGlobalListeners();
 }
@@ -1521,6 +1550,19 @@ function handleNonRenderingAction(button) {
     const form = button.closest("form");
     form.elements.studentIds.value = JSON.stringify(modal.scheduleStudentIds);
     updateSelectedScheduleList(form);
+    return true;
+  }
+
+  if (action === "pickMaterialStudent") {
+    const studentId = button.dataset.id;
+    const selected = new Set(toList(modal.materialStudentIds));
+    selected.has(studentId) ? selected.delete(studentId) : selected.add(studentId);
+    modal.materialStudentIds = Array.from(selected);
+    button.classList.toggle("selected");
+    const form = button.closest("form");
+    form.elements.studentIds.value = JSON.stringify(modal.materialStudentIds);
+    const countEl = form.querySelector("[data-material-count]");
+    if (countEl) countEl.textContent = `${modal.materialStudentIds.length}명 선택됨`;
     return true;
   }
 
@@ -1761,6 +1803,7 @@ async function handleAction(event) {
   if (action === "openPeriodManager") modal = { type: "periodManager" };
   if (action === "openPeriodForm") modal = { type: "periodForm" };
   if (action === "openScheduleForm") modal = { type: "scheduleForm", scheduleSlots: [], scheduleStudentIds: [] };
+  if (action === "openBulkMaterialForm") modal = { type: "bulkMaterialForm", materialStudentIds: [] };
   if (action === "openAcademicEventForm") modal = { type: "academicEventForm" };
   if (action === "deleteAcademicEvent") await deleteAcademicEvent(idValue);
   if (action === "moveCalendarMonth") calendarMonth = moveMonth(calendarMonth, Number(event.currentTarget.dataset.delta));
@@ -1850,6 +1893,7 @@ async function handleForm(form) {
   else if (form.dataset.form === "period") result = await addPeriod(data);
   else if (form.dataset.form === "schedule") result = await addSchedule(form);
   else if (form.dataset.form === "scheduleEdit") result = await updateSchedule(form);
+  else if (form.dataset.form === "bulkMaterial") result = await applyBulkMaterial(data);
   else if (form.dataset.form === "academicEvent") result = await addAcademicEvent(data);
   else if (form.dataset.form === "changePassword") result = await changePassword(data);
   if (result === false) return;
@@ -2164,6 +2208,29 @@ async function updateSchedule(form) {
     day: fd.get("day"), period: fd.get("period"), lesson_type: fd.get("lessonType"), teacher_ids: teacherIds
   }).eq("id", schedule.id);
   if (error) { showMessage(`시간표 수정 실패: ${error.message}`); return false; }
+  await loadAllData();
+}
+
+async function applyBulkMaterial(data) {
+  let studentIds = [];
+  try { studentIds = JSON.parse(data.studentIds || "[]"); } catch { studentIds = []; }
+  if (!studentIds.length) { showMessage("학생을 선택해주세요."); return false; }
+  const material = data.materialCustom?.trim() || data.material?.trim() || "";
+  if (!material) { showMessage("교재를 선택하거나 입력해주세요."); return false; }
+  const grade = data.grade?.trim() || "";
+  if (!grade) { showMessage("학년을 선택해주세요."); return false; }
+  const term = data.term?.trim() || "1학기";
+
+  await supabase.from("materials").upsert({ name: material }, { onConflict: "name", ignoreDuplicates: true });
+
+  for (const studentId of studentIds) {
+    const student = toList(state.students).find(s => s.id === studentId);
+    if (!student) continue;
+    const plans = toList(student.studyPlans).filter(plan => plan.material !== material);
+    plans.push({ material, grade, term });
+    const { error } = await supabase.from("students").update({ study_plans: plans }).eq("id", studentId);
+    if (error) { showMessage(`${student.name} 교재 설정 실패: ${error.message}`); return false; }
+  }
   await loadAllData();
 }
 
