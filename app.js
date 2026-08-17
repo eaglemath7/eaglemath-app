@@ -1278,11 +1278,11 @@ function renderPeriodTable() {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>교시</th><th>시간</th><th></th></tr></thead>
+        <thead><tr><th>시간</th><th>이름</th><th></th></tr></thead>
         <tbody>${periods.map(p => `
           <tr>
-            <td>${escapeHtml(p.name)} ${!p.active ? `<span class="badge bad">숨김</span>` : ""}</td>
-            <td>${escapeHtml([p.startTime, p.endTime].filter(Boolean).join(" ~ ") || "시간 미지정")}</td>
+            <td>${periodTimeLabel(p.name)} ${!p.active ? `<span class="badge bad">숨김</span>` : ""}</td>
+            <td><span class="muted small">${escapeHtml(p.name)}</span></td>
             <td class="toolbar">
               <button data-action="editPeriod" data-id="${p.id}">수정</button>
               <button title="위로 이동" aria-label="${escapeHtml(p.name)} 위로 이동" data-action="movePeriodUp" data-id="${p.id}">↑</button>
