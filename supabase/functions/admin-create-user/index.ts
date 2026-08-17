@@ -75,15 +75,17 @@ Deno.serve(async (req) => {
     const password: string = (body.password || "").trim();
     const birthday4: string = (body.birthday4 || "").trim();
     const schoolYear: string = (body.schoolYear || "").trim();
+    const schoolName: string = (body.schoolName || "").trim();
+    const studentPhone: string = (body.studentPhone || "").trim();
+    const parentPhone: string = (body.parentPhone || "").trim();
+    const parentName: string = (body.parentName || "").trim();
+    const parentRelation: string = (body.parentRelation || "").trim();
     const studyPlans = Array.isArray(body.studyPlans) ? body.studyPlans : [];
 
     if (!["admin", "deputy", "teacher", "student"].includes(role)) {
       return jsonResponse({ error: "invalid role" }, 400);
     }
     if (!name || !loginId) return jsonResponse({ error: "name/loginId required" }, 400);
-    if (role === "student" && !birthday4) {
-      return jsonResponse({ error: "birthday4 required for student" }, 400);
-    }
 
     const email = loginIdToEmail(loginId);
     const finalPassword = password || "1234";
@@ -122,8 +124,13 @@ Deno.serve(async (req) => {
     if (role === "student") {
       const { error: studentError } = await adminClient.from("students").insert({
         id: userId,
-        birthday4,
+        birthday4: birthday4 || null,
         school_year: schoolYear || null,
+        school_name: schoolName || null,
+        student_phone: studentPhone || null,
+        parent_phone: parentPhone || null,
+        parent_name: parentName || null,
+        parent_relation: parentRelation || null,
         study_plans: studyPlans,
       });
       if (studentError) {

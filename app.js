@@ -155,8 +155,10 @@ async function loadAllData() {
   state.students = toList(studentsRes.data).map((row) => {
     const profile = profileById.get(row.id) || {};
     return {
-      id: row.id, name: profile.name || "", birthday4: row.birthday4, schoolYear: row.school_year || "",
-      phone: profile.phone || "", loginId: profile.login_id || "", studyPlans: toList(row.study_plans),
+      id: row.id, name: profile.name || "", birthday4: row.birthday4 || "", schoolYear: row.school_year || "",
+      schoolName: row.school_name || "", studentPhone: row.student_phone || "", parentPhone: row.parent_phone || "",
+      parentName: row.parent_name || "", parentRelation: row.parent_relation || "",
+      loginId: profile.login_id || "", studyPlans: toList(row.study_plans),
       active: profile.active !== false
     };
   });
@@ -237,6 +239,24 @@ function periodOptions() {
     .filter(period => period.active)
     .map(period => period.name);
   return periods.length ? periods : DEFAULT_PERIODS;
+}
+
+// 화면에 "1교시" 대신 시작/종료 시간을 위아래 두 줄(각 4자리 숫자)로 보여줍니다.
+// 저장/매칭용 값(교시 이름)은 그대로 두고 화면 표시만 바꾸는 용도라, data-period 등에는
+// 원래 이름을 계속 씁니다. 버튼 innerHTML로 바로 쓰이므로 여기서 escapeHtml 처리합니다.
+function periodTimeLabel(name) {
+  const period = toList(state.periods).find(item => item.name === name);
+  if (!period?.startTime || !period?.endTime) return escapeHtml(name);
+  const compact = (t) => t.replace(":", "");
+  return `<span class="period-time-line">${compact(period.startTime)}</span><span class="period-time-line">${compact(period.endTime)}</span>`;
+}
+
+// 문장 속에 한 줄로 끼워 넣을 때 쓰는 버전 (예: "0200-0250 · 김민준").
+function periodTimeInline(name) {
+  const period = toList(state.periods).find(item => item.name === name);
+  if (!period?.startTime || !period?.endTime) return escapeHtml(name);
+  const compact = (t) => t.replace(":", "");
+  return `${compact(period.startTime)}-${compact(period.endTime)}`;
 }
 
 function escapeHtml(value = "") {
@@ -568,7 +588,7 @@ function renderCalendarDay() {
   const holiday = holidayOnDate(date);
   const query = modal.query || "";
   const scheduledIds = [...new Set(schedules.map(item => item.studentId))];
-  const searchedStudents = canTeacher() && query ? toList(state.students).filter(student => student.active && (`${student.name} ${student.loginId} ${student.phone}`).includes(query)).slice(0, 10) : [];
+  const searchedStudents = canTeacher() && query ? toList(state.students).filter(student => student.active && (`${student.name} ${student.loginId} ${student.parentPhone} ${student.studentPhone}`).includes(query)).slice(0, 10) : [];
   return `<div class="stack"><div class="between"><h2 class="section-title">${formatKoreanDate(date)}</h2><button data-action="closeModal">닫기</button></div>
     ${holiday ? `<div class="event-card holiday-card"><strong>${escapeHtml(holiday)}</strong><span>대한민국 공휴일</span></div>` : ""}
     ${events.map(item => `<div class="event-card"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.type)}${item.note ? ` · ${escapeHtml(item.note)}` : ""}</span></div>`).join("")}
@@ -577,7 +597,7 @@ function renderCalendarDay() {
       <input data-action="searchCalendarStudent" value="${escapeHtml(query)}" placeholder="당일 수업이 아닌 학생도 이름·아이디로 검색" />
       ${searchedStudents.length ? `<div class="student-picker">${searchedStudents.map(student => `<button class="student-button ${selectedStudents.has(student.id) ? "selected" : ""}" data-action="pickCalendarStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${scheduledIds.includes(student.id) ? "예정 학생" : "추가 학생"}</span></button>`).join("")}</div>` : ""}
       <div class="form-actions"><button data-action="clearSelection" ${selectedStudents.size ? "" : "disabled"}>선택 해제</button><button class="primary" data-action="openCalendarRecord" ${selectedStudents.size ? "" : "disabled"}>선택 학생 함께 기록</button></div>
-    </section>` : schedules.length ? `<div class="stack"><strong>예정 수업</strong>${schedules.map(item => `<div class="schedule-line"><span>${escapeHtml(item.period)} · ${escapeHtml(studentName(item.studentId))}</span><span class="badge">${escapeHtml(item.lessonType)}</span></div>`).join("")}</div>` : ""}
+    </section>` : schedules.length ? `<div class="stack"><strong>예정 수업</strong>${schedules.map(item => `<div class="schedule-line"><span>${periodTimeInline(item.period)} · ${escapeHtml(studentName(item.studentId))}</span><span class="badge">${escapeHtml(item.lessonType)}</span></div>`).join("")}</div>` : ""}
     ${records.length ? `<div class="stack"><strong>학습 이력</strong>${session.type === "student" ? renderStudentDailyNotices(records) : renderRecordList(records, canTeacher())}</div>` : ""}
     ${!holiday && !events.length && !schedules.length && !records.length && !canTeacher() ? `<div class="empty">등록된 일정이나 학습기록이 없습니다.</div>` : ""}</div>`;
 }
@@ -615,7 +635,7 @@ function renderTeacher() {
           <button class="blue" data-action="openQuickRecord">학생 검색 작성</button>
         </div>
         <div class="tabs">
-          ${activePeriods.map(p => `<button class="${p === selectedPeriod ? "selected" : ""}" data-period="${p}">${p}</button>`).join("")}
+          ${activePeriods.map(p => `<button class="${p === selectedPeriod ? "selected" : ""}" data-period="${p}">${periodTimeLabel(p)}</button>`).join("")}
         </div>
         ${scheduledStudents.length ? `
           <div class="between">
@@ -647,9 +667,10 @@ function renderPasswordPanel() {
   return `
     <section class="panel stack password-panel">
       <strong>최초 로그인 비밀번호 변경</strong>
+      <div class="muted small">숫자 4자리로 새 비밀번호를 정해주세요.</div>
       <form class="grid two" data-form="changePassword">
-        <label>새 비밀번호 <input name="password" type="password" minlength="4" required /></label>
-        <label>새 비밀번호 확인 <input name="confirm" type="password" minlength="4" required /></label>
+        <label>새 비밀번호 <input name="password" type="password" inputmode="numeric" pattern="\\d{4}" maxlength="4" minlength="4" required /></label>
+        <label>새 비밀번호 확인 <input name="confirm" type="password" inputmode="numeric" pattern="\\d{4}" maxlength="4" minlength="4" required /></label>
         <button class="primary" type="submit">변경</button>
       </form>
     </section>
@@ -727,13 +748,13 @@ function renderAdmin() {
           <h2 class="section-title">학생</h2>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>전화</th><th></th></tr></thead>
+              <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
               <tbody>${toList(state.students).map(s => `
                 <tr>
                   <td>${escapeHtml(s.name)} ${!s.active ? `<span class="badge bad">숨김</span>` : ""}</td>
                   <td>${escapeHtml(s.schoolYear || "-")}</td>
                   <td>${escapeHtml(s.loginId)}</td>
-                  <td>${escapeHtml(s.phone)}</td>
+                  <td>${escapeHtml(s.parentPhone || "-")}</td>
                   <td class="toolbar">
                     <button data-action="editStudent" data-id="${s.id}">수정</button>
                     <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
@@ -878,7 +899,7 @@ function renderRecordCard(record, editable, adminMode = false) {
     <article class="record-item ${record.hidden ? "hidden" : ""}">
       <div class="record-head">
         <div>
-          <strong>${escapeHtml(record.lessonDate)} · ${escapeHtml(record.period)} · ${escapeHtml(record.lessonType)}</strong>
+          <strong>${escapeHtml(record.lessonDate)} · ${periodTimeInline(record.period)} · ${escapeHtml(record.lessonType)}</strong>
           <div class="muted small">${escapeHtml(students)}</div>
         </div>
         <div class="row">
@@ -1112,7 +1133,7 @@ function renderIndividualRecordFields(studentIds, record = {}) {
 function renderQuickRecordModal() {
   const query = modal.query || "";
   const lessonDate = modal.lessonDate || todayIso();
-  const found = toList(state.students).filter(s => s.active && (`${s.name} ${s.loginId} ${s.phone}`).includes(query)).slice(0, 12);
+  const found = toList(state.students).filter(s => s.active && (`${s.name} ${s.loginId} ${s.parentPhone} ${s.studentPhone}`).includes(query)).slice(0, 12);
   return `
     <div class="stack">
       <div class="between">
@@ -1169,7 +1190,7 @@ function renderStudentForm(student = null) {
       ${student ? `<input type="hidden" name="id" value="${student.id}" />` : ""}
       <div class="grid two">
         <label>이름 <input name="name" value="${escapeHtml(student?.name || "")}" required /></label>
-        <label>생일 4자리 <input name="birthday4" maxlength="4" placeholder="0315" value="${escapeHtml(student?.birthday4 || "")}" required /></label>
+        <label>생일 4자리 <span class="muted small">모르면 비워두세요</span><input name="birthday4" maxlength="4" placeholder="0315" value="${escapeHtml(student?.birthday4 || "")}" /></label>
       </div>
       <label>학년
         <div class="grade-grid">
@@ -1177,8 +1198,19 @@ function renderStudentForm(student = null) {
         </div>
         <input type="hidden" name="schoolYear" value="${escapeHtml(student?.schoolYear || "")}" />
       </label>
-      <label>전화번호 <input name="phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.phone || "")}" required /></label>
-      <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리 자동 생성" /></label>
+      <label>학교명 <input name="schoolName" placeholder="예: 독수리초등학교" value="${escapeHtml(student?.schoolName || "")}" /></label>
+      <div class="grid two">
+        <label>학생 휴대폰 <span class="muted small">선택사항</span><input name="studentPhone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.studentPhone || "")}" /></label>
+        <label>학부모 휴대폰 <input name="parentPhone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.parentPhone || "")}" required /></label>
+      </div>
+      <div class="grid two">
+        <label>학부모 관계 <select name="parentRelation">
+          <option value="">선택 안 함</option>
+          ${["모", "부", "기타"].map(v => `<option ${student?.parentRelation === v ? "selected" : ""}>${v}</option>`).join("")}
+        </select></label>
+        <label>학부모 성함 <span class="muted small">선택사항</span><input name="parentName" value="${escapeHtml(student?.parentName || "")}" /></label>
+      </div>
+      <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름으로 자동 생성 (겹치면 -2, -3...)" /></label>
       <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
       <section class="panel stack curriculum-setup">
         <div><strong>학습 교재와 교육과정</strong><div class="muted small">각 교재마다 실제로 공부하는 학년과 학기를 따로 지정합니다.</div></div>
@@ -1195,7 +1227,7 @@ function renderStudentForm(student = null) {
         <div class="muted small">예: 학생 학년은 초5, 디딤돌은 초6 1학기, 쎈은 중1 1학기로 각각 설정할 수 있습니다.</div>
       </section>
       <section class="panel stack"><div><strong>정규 수업 시간표</strong><div class="muted small">학생 등록과 동시에 요일과 교시를 선택합니다.</div></div>
-        <div class="weekly-period-grid">${DAYS.map(day => `<div class="day-column"><div class="day-title">${day}</div>${periodOptions().map(period => `<button type="button" class="${slots.some(slot => slot.day === day && slot.period === period) ? "selected" : ""}" data-action="pickStudentFormSlot" data-day="${day}" data-period-name="${escapeHtml(period)}">${escapeHtml(period)}</button>`).join("")}</div>`).join("")}</div>
+        <div class="weekly-period-grid">${DAYS.map(day => `<div class="day-column"><div class="day-title">${day}</div>${periodOptions().map(period => `<button type="button" class="${slots.some(slot => slot.day === day && slot.period === period) ? "selected" : ""}" data-action="pickStudentFormSlot" data-day="${day}" data-period-name="${escapeHtml(period)}">${periodTimeLabel(period)}</button>`).join("")}</div>`).join("")}</div>
         <input type="hidden" name="slots" value="${escapeHtml(JSON.stringify(slots))}" />
         <label>담당 선생님 <select name="teacherIds" multiple size="4">${toList(state.teachers).filter(t => t.active).map(t => `<option value="${t.id}" ${teacherIds.includes(t.id) ? "selected" : ""}>${escapeHtml(t.name)}</option>`).join("")}</select></label>
       </section>
@@ -1312,7 +1344,7 @@ function renderScheduleForm() {
           <div class="list">
             ${selectedStudentSchedules.map(schedule => `
               <div class="between">
-                <span>${escapeHtml(studentName(schedule.studentId))} · ${escapeHtml(schedule.day)} · ${escapeHtml(schedule.period)} · ${escapeHtml(schedule.lessonType || "정규")} · ${toList(schedule.teacherIds).map(teacherName).join(", ")}</span>
+                <span>${escapeHtml(studentName(schedule.studentId))} · ${escapeHtml(schedule.day)} · ${periodTimeInline(schedule.period)} · ${escapeHtml(schedule.lessonType || "정규")} · ${toList(schedule.teacherIds).map(teacherName).join(", ")}</span>
                 <span class="toolbar">
                   <button type="button" data-action="editSchedule" data-id="${schedule.id}">수정</button>
                   <button type="button" class="danger" data-action="deleteSchedule" data-id="${schedule.id}">삭제</button>
@@ -1335,7 +1367,7 @@ function renderScheduleForm() {
                   data-action="pickScheduleSlot"
                   data-day="${day}"
                   data-period-name="${escapeHtml(period)}"
-                >${escapeHtml(period)}</button>
+                >${periodTimeLabel(period)}</button>
               `).join("")}
             </div>
           `).join("")}
@@ -1376,7 +1408,7 @@ function renderEditScheduleForm(schedule = {}) {
                   data-action="pickEditScheduleSlot"
                   data-day="${day}"
                   data-period-name="${escapeHtml(period)}"
-                >${escapeHtml(period)}</button>
+                >${periodTimeLabel(period)}</button>
               `).join("")}
             </div>
           `).join("")}
@@ -1527,7 +1559,7 @@ function updateSelectedScheduleList(form) {
     <div class="list">
       ${schedules.map(schedule => `
         <div class="between">
-          <span>${escapeHtml(studentName(schedule.studentId))} · ${escapeHtml(schedule.day)} · ${escapeHtml(schedule.period)} · ${escapeHtml(schedule.lessonType || "정규")} · ${toList(schedule.teacherIds).map(teacherName).join(", ")}</span>
+          <span>${escapeHtml(studentName(schedule.studentId))} · ${escapeHtml(schedule.day)} · ${periodTimeInline(schedule.period)} · ${escapeHtml(schedule.lessonType || "정규")} · ${toList(schedule.teacherIds).map(teacherName).join(", ")}</span>
           <span class="toolbar">
             <button type="button" data-action="editSchedule" data-id="${schedule.id}">수정</button>
             <button type="button" class="danger" data-action="deleteSchedule" data-id="${schedule.id}">삭제</button>
@@ -1926,26 +1958,40 @@ async function syncStudentSchedules(studentId, scheduleData) {
   }
 }
 
+function validateStudentPhones(data) {
+  const parentPhone = formatPhone(data.parentPhone);
+  if (!isValidPhone(parentPhone)) {
+    showMessage("학부모 휴대폰은 010-0000-0000 형식으로 입력해주세요.");
+    return null;
+  }
+  const studentPhone = data.studentPhone?.trim() ? formatPhone(data.studentPhone) : "";
+  if (studentPhone && !isValidPhone(studentPhone)) {
+    showMessage("학생 휴대폰은 010-0000-0000 형식으로 입력해주세요.");
+    return null;
+  }
+  return { parentPhone, studentPhone };
+}
+
 async function addStudent(form, data) {
   const scheduleData = readStudentScheduleForm(form);
   if (!scheduleData) return false;
   const studyPlans = readStudentPlans(form);
   if (!studyPlans) return false;
-  const phone = formatPhone(data.phone);
-  if (!isValidPhone(phone)) {
-    showMessage("전화번호는 010-0000-0000 형식으로 입력해주세요.");
-    return false;
-  }
-  const base = `${data.name.trim()}${data.birthday4.trim()}`;
+  const phones = validateStudentPhones(data);
+  if (!phones) return false;
+  const base = data.name.trim();
   let loginId = data.loginId?.trim() || base;
   let count = 2;
   while (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
     loginId = `${base}-${count++}`;
   }
   const { data: created, error } = await invokeAdmin("admin-create-user", {
-    role: "student", name: data.name.trim(), loginId, phone,
-    password: data.password?.trim() || "", birthday4: data.birthday4.trim(),
-    schoolYear: data.schoolYear?.trim() || "", studyPlans
+    role: "student", name: data.name.trim(), loginId,
+    password: data.password?.trim() || "", birthday4: data.birthday4?.trim() || "",
+    schoolYear: data.schoolYear?.trim() || "", schoolName: data.schoolName?.trim() || "",
+    studentPhone: phones.studentPhone, parentPhone: phones.parentPhone,
+    parentName: data.parentName?.trim() || "", parentRelation: data.parentRelation || "",
+    studyPlans
   });
   if (error) { showMessage(`학생 등록 실패: ${error}`); return false; }
   await syncStudentSchedules(created.id, scheduleData);
@@ -1959,12 +2005,9 @@ async function updateStudent(form, data) {
   if (!studyPlans) return false;
   const student = toList(state.students).find(item => item.id === data.id);
   if (!student) return false;
-  const phone = formatPhone(data.phone);
-  if (!isValidPhone(phone)) {
-    showMessage("전화번호는 010-0000-0000 형식으로 입력해주세요.");
-    return false;
-  }
-  const loginId = data.loginId?.trim() || `${data.name.trim()}${data.birthday4.trim()}`;
+  const phones = validateStudentPhones(data);
+  if (!phones) return false;
+  const loginId = data.loginId?.trim() || data.name.trim();
   const duplicate = toList(state.students).some(item => item.id !== student.id && item.loginId === loginId)
     || toList(state.teachers).some(item => item.loginId === loginId);
   if (duplicate) {
@@ -1972,11 +2015,14 @@ async function updateStudent(form, data) {
     return false;
   }
   const { error: profileError } = await supabase.from("profiles").update({
-    name: data.name.trim(), login_id: loginId, phone
+    name: data.name.trim(), login_id: loginId
   }).eq("id", student.id);
   if (profileError) { showMessage(`학생 정보 저장 실패: ${profileError.message}`); return false; }
   const { error: studentError } = await supabase.from("students").update({
-    birthday4: data.birthday4.trim(), school_year: data.schoolYear?.trim() || "", study_plans: studyPlans
+    birthday4: data.birthday4?.trim() || null, school_year: data.schoolYear?.trim() || "", study_plans: studyPlans,
+    school_name: data.schoolName?.trim() || null, student_phone: phones.studentPhone || null,
+    parent_phone: phones.parentPhone, parent_name: data.parentName?.trim() || null,
+    parent_relation: data.parentRelation || null
   }).eq("id", student.id);
   if (studentError) { showMessage(`학생 정보 저장 실패: ${studentError.message}`); return false; }
   if (data.password?.trim()) {
@@ -2126,8 +2172,8 @@ async function changePassword(data) {
     showMessage("비밀번호 확인이 일치하지 않습니다.");
     return false;
   }
-  if (data.password.length < 4) {
-    showMessage("비밀번호는 4자 이상이어야 합니다.");
+  if (!/^\d{4}$/.test(data.password)) {
+    showMessage("비밀번호는 숫자 4자리로 입력해주세요.");
     return false;
   }
   const { error: authError } = await supabase.auth.updateUser({ password: data.password });

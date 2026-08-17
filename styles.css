@@ -270,6 +270,12 @@ label {
   padding: 8px 6px;
   font-weight: 700;
 }
+.period-time-line {
+  display: block;
+  line-height: 1.25;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .student-button {
   height: 50px;
   text-align: left;
