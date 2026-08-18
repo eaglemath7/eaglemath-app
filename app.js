@@ -2019,7 +2019,11 @@ async function importStudentsFromRows(rows) {
   await loadAllData();
   const summary = [`${success}명 등록 완료`];
   if (failures.length) summary.push(`실패 ${failures.length}건:\n${failures.join("\n")}`);
-  showMessage(summary.join("\n\n"));
+  // 여기서 showMessage()(= window.alert)를 쓰면 수백 명을 등록할 때 마지막에 화면이
+  // 멈춰버립니다(관리자가 직접 닫기 전까지). 대신 콘솔에 기록하고, 실패 건은
+  // window.__lastImportFailures로도 남겨서 필요하면 나중에 확인할 수 있게 합니다.
+  window.__lastImportFailures = failures;
+  console.info("[학생 일괄 등록 결과]", summary.join("\n\n"));
 }
 
 async function handleForm(form) {
