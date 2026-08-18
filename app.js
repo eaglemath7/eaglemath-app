@@ -1207,7 +1207,7 @@ function renderStudentForm(student = null) {
       <label>학교명 <input name="schoolName" placeholder="예: 독수리초등학교" value="${escapeHtml(student?.schoolName || "")}" /></label>
       <div class="grid two">
         <label>학생 휴대폰 <span class="muted small">선택사항</span><input name="studentPhone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.studentPhone || "")}" /></label>
-        <label>학부모 휴대폰 <input name="parentPhone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.parentPhone || "")}" required /></label>
+        <label>학부모 휴대폰 <span class="muted small">선택사항</span><input name="parentPhone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.parentPhone || "")}" /></label>
       </div>
       <div class="grid two">
         <label>학부모 관계 <select name="parentRelation">
@@ -1934,7 +1934,8 @@ async function handleStudentExcelFile(file) {
 function parseStudentExcelRow(raw) {
   const get = (key) => String(raw[key] ?? "").trim();
   const name = get("이름");
-  const parentPhone = formatPhone(get("학부모휴대폰"));
+  const parentPhoneRaw = get("학부모휴대폰");
+  const parentPhone = parentPhoneRaw ? formatPhone(parentPhoneRaw) : "";
   const studentPhoneRaw = get("학생휴대폰");
   const studentPhone = studentPhoneRaw ? formatPhone(studentPhoneRaw) : "";
 
@@ -1952,7 +1953,7 @@ function parseStudentExcelRow(raw) {
   };
 
   if (!name) return { ok: false, reason: "이름이 없어요", data };
-  if (!parentPhone || !isValidPhone(parentPhone)) return { ok: false, reason: "학부모휴대폰이 010-0000-0000 형식이 아니에요", data };
+  if (parentPhoneRaw && !isValidPhone(parentPhone)) return { ok: false, reason: "학부모휴대폰이 010-0000-0000 형식이 아니에요", data };
   if (studentPhoneRaw && !isValidPhone(studentPhone)) return { ok: false, reason: "학생휴대폰 형식이 잘못됐어요", data };
   return { ok: true, reason: "", data };
 }
@@ -2149,8 +2150,8 @@ function studentLoginIdBase(name, parentPhone) {
 }
 
 function validateStudentPhones(data) {
-  const parentPhone = formatPhone(data.parentPhone);
-  if (!isValidPhone(parentPhone)) {
+  const parentPhoneRaw = data.parentPhone?.trim() ? formatPhone(data.parentPhone) : "";
+  if (parentPhoneRaw && !isValidPhone(parentPhoneRaw)) {
     showMessage("학부모 휴대폰은 010-0000-0000 형식으로 입력해주세요.");
     return null;
   }
@@ -2159,7 +2160,7 @@ function validateStudentPhones(data) {
     showMessage("학생 휴대폰은 010-0000-0000 형식으로 입력해주세요.");
     return null;
   }
-  return { parentPhone, studentPhone };
+  return { parentPhone: parentPhoneRaw, studentPhone };
 }
 
 async function addStudent(form, data) {
@@ -2211,7 +2212,7 @@ async function updateStudent(form, data) {
   const { error: studentError } = await supabase.from("students").update({
     birthday4: data.birthday4?.trim() || null, school_year: data.schoolYear?.trim() || "", study_plans: studyPlans,
     school_name: data.schoolName?.trim() || null, student_phone: phones.studentPhone || null,
-    parent_phone: phones.parentPhone, parent_name: data.parentName?.trim() || null,
+    parent_phone: phones.parentPhone || null, parent_name: data.parentName?.trim() || null,
     parent_relation: data.parentRelation || null
   }).eq("id", student.id);
   if (studentError) { showMessage(`학생 정보 저장 실패: ${studentError.message}`); return false; }
