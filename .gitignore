@@ -1,0 +1,5 @@
+# 실제 학생 개인정보가 들어있는 파일은 공개 저장소에 절대 올리면 안 됩니다.
+# (student-import-template.xlsx는 예시용 가짜 데이터라 안전해서 예외로 둡니다.)
+student-import-ready.xlsx
+student-import-retry*.xlsx
+student-import-test*.xlsx

@@ -1707,7 +1707,7 @@ function updateSelectedScheduleList(form) {
   ` : `<div class="empty">선택한 학생의 배정 시간이 없습니다.</div>`;
 }
 
-function buildAiPrompt(button) {
+async function buildAiPrompt(button) {
   const form = button.closest("form");
   const output = form?.querySelector("[data-ai-prompt-output]");
   const preview = form?.querySelector("[data-ai-preview-output]");
@@ -1715,10 +1715,25 @@ function buildAiPrompt(button) {
   if (!form || !output || !preview || !target) return;
   const kind = button.dataset.aiKind;
   const data = Object.fromEntries(new FormData(form).entries());
-  const source = data[kind] || "";
+  const source = (data[kind] || "").trim();
   output.value = aiPromptText(kind, source);
-  preview.value = buildAiSuggestion(kind, source);
   target.value = kind;
+  if (!source) {
+    preview.value = "먼저 해당 입력칸에 원문을 작성한 뒤 다시 점검해주세요.";
+    return;
+  }
+  // 실제 Claude API를 호출하는 ai-polish Edge Function으로 다듬어달라고 요청합니다
+  // (예전에는 buildAiSuggestion()이 원문 앞뒤에 고정 문구만 붙였는데, 이제 진짜로
+  // 다시 써줍니다). 응답이 오기 전까지는 미리보기 칸에 로딩 문구를 보여줍니다.
+  preview.value = "AI가 문장을 다듬는 중이에요...";
+  button.disabled = true;
+  const { data: result, error } = await invokeAdmin("ai-polish", { kind, source });
+  button.disabled = false;
+  if (error) {
+    preview.value = `문장 다듬기에 실패했어요: ${error}`;
+    return;
+  }
+  preview.value = result.text;
   preview.focus();
   preview.setSelectionRange(preview.value.length, preview.value.length);
 }
@@ -1770,28 +1785,6 @@ function aiPromptSubject(kind) {
     title: "알림장 문장",
     instruction: "읽기 좋은 알림장 문장으로 다듬어주세요."
   };
-}
-
-function buildAiSuggestion(kind, source = "") {
-  const text = source.trim();
-  if (!text) return "먼저 해당 입력칸에 원문을 작성한 뒤 다시 점검해주세요.";
-  const clean = text
-    .replace(/\s+/g, " ")
-    .replace(/\s*([,.!?])\s*/g, "$1 ")
-    .trim();
-  if (kind === "content") {
-    return `오늘 수업에서는 ${clean} 내용을 중심으로 학습했습니다. 핵심 개념을 다시 확인하며 문제 적용까지 차근차근 이어갈 수 있도록 지도했습니다.`;
-  }
-  if (kind === "assignment") {
-    return `오늘의 과제는 ${clean}입니다. 풀이 과정과 오답을 함께 확인하며 마무리할 수 있도록 가정에서도 한 번 살펴봐 주세요.`;
-  }
-  if (kind === "parentMessage") {
-    return `${clean} 앞으로도 학생의 이해도와 학습 흐름을 세심하게 확인하며 지도하겠습니다. 가정에서도 따뜻한 격려 부탁드립니다.`;
-  }
-  if (kind === "studentMessage") {
-    return `${clean} 오늘 배운 내용을 한 번 더 떠올리며 과제까지 차분히 마무리해보자. 지금처럼 꾸준히 이어가면 충분히 좋아질 수 있어.`;
-  }
-  return clean;
 }
 
 function handleGlobalSubmit(event) {
