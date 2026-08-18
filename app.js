@@ -1912,7 +1912,9 @@ const STUDENT_EXCEL_HEADERS = ["이름", "생일4자리", "학년", "학교명",
 
 async function handleStudentExcelFile(file) {
   if (!file) return;
-  showMessage("파일을 읽는 중이에요. 잠시만요...");
+  // 주의: 여기서 showMessage()(= window.alert)를 쓰면 안 됩니다. alert는 사용자가
+  // 직접 닫기 전까지 페이지 전체(화면 렌더링 포함)를 멈춰버려서, 파싱이 끝나도
+  // 미리보기 모달이 안 열린 것처럼 보이는 버그가 있었습니다.
   try {
     const XLSX = await import("https://esm.sh/xlsx@0.18.5");
     const buffer = new Uint8Array(await file.arrayBuffer());
