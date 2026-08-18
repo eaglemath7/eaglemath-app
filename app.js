@@ -1091,10 +1091,10 @@ function renderRecordForm(mode, record = {}) {
       <input type="hidden" name="period" value="${escapeHtml(record.period || selectedPeriod)}" />
       ${mode !== "edit" && studentIds.length > 1 ? `<div class="common-record-note"><strong>선택한 ${studentIds.length}명에게 공통으로 적용</strong><span>진도·수업 내용·과제를 한 번만 입력하세요. 학생별로 다른 내용만 아래에서 수정할 수 있습니다.</span></div>` : ""}
       <div class="grid two">
-        <label>출석 <select name="attendance">${ATTENDANCE.map(v => `<option ${v === normalizeAttendance(record.attendance || "정시출석") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
-        <label>과제수행도 <select name="homework">${HOMEWORK.map(v => `<option ${v === normalizeHomework(record.homework || "완벽") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+        <label>출석 <select name="attendance" data-common-field="attendance">${ATTENDANCE.map(v => `<option ${v === normalizeAttendance(record.attendance || "정시출석") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+        <label>과제수행도 <select name="homework" data-common-field="homework">${HOMEWORK.map(v => `<option ${v === normalizeHomework(record.homework || "완벽") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       </div>
-      <label>수업집중도 <select name="focus"><option value="">선택 안 함</option>${FOCUS_LEVELS.map(v => `<option ${v === record.focus ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+      <label>수업집중도 <select name="focus" data-common-field="focus"><option value="">선택 안 함</option>${FOCUS_LEVELS.map(v => `<option ${v === record.focus ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       <div class="grid two">
         <label>교재명 <select name="material" data-action="selectRecordMaterial">
           <option value="">선택 안 함</option>
@@ -1162,6 +1162,11 @@ function renderIndividualRecordFields(studentIds, record = {}) {
         <details class="student-detail">
           <summary>${escapeHtml(studentName(studentId))}</summary>
           <div class="stack">
+            <div class="grid three">
+              <label>출석 <select name="attendance_${studentId}" data-individual-field="attendance" data-student-id="${studentId}">${ATTENDANCE.map(v => `<option ${v === normalizeAttendance(record.attendance || "정시출석") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>과제수행도 <select name="homework_${studentId}" data-individual-field="homework" data-student-id="${studentId}">${HOMEWORK.map(v => `<option ${v === normalizeHomework(record.homework || "완벽") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>수업집중도 <select name="focus_${studentId}" data-individual-field="focus" data-student-id="${studentId}"><option value="">선택 안 함</option>${FOCUS_LEVELS.map(v => `<option ${v === record.focus ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+            </div>
             <label>수업 내용 <textarea name="content_${studentId}" data-individual-field="content" data-student-id="${studentId}">${escapeHtml(record.content || "")}</textarea></label>
             <label>오늘의 과제 <textarea name="assignment_${studentId}" data-individual-field="assignment" data-student-id="${studentId}">${escapeHtml(record.assignment || "")}</textarea></label>
             <label>학부모님께 드리는 글 <textarea name="parentMessage_${studentId}" data-individual-field="parentMessage" data-student-id="${studentId}">${escapeHtml(record.parentMessage || "")}</textarea></label>
@@ -2235,7 +2240,9 @@ async function saveRecord(mode, data) {
   const rows = studentIds.map(studentId => ({
     group_id: groupId, student_id: studentId,
     lesson_date: data.lessonDate, period: data.period, lesson_type: data.lessonType,
-    attendance: data.attendance, homework: data.homework, focus: data.focus || null,
+    attendance: data[`attendance_${studentId}`] || data.attendance,
+    homework: data[`homework_${studentId}`] || data.homework,
+    focus: (data[`focus_${studentId}`] ?? data.focus) || null,
     material: material || null, unit: unit || null,
     content: data[`content_${studentId}`] ?? data.content ?? null,
     assignment: data[`assignment_${studentId}`] ?? data.assignment ?? null,
