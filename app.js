@@ -1216,7 +1216,7 @@ function renderStudentForm(student = null) {
         </select></label>
         <label>학부모 성함 <span class="muted small">선택사항</span><input name="parentName" value="${escapeHtml(student?.parentName || "")}" /></label>
       </div>
-      <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름으로 자동 생성 (겹치면 -2, -3...)" /></label>
+      <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리로 자동 생성 (그래도 겹치면 -2, -3...)" /></label>
       <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
       <section class="panel stack curriculum-setup">
         <div><strong>학습 교재와 교육과정</strong><div class="muted small">각 교재마다 실제로 공부하는 학년과 학기를 따로 지정합니다.</div></div>
@@ -1997,7 +1997,7 @@ async function importStudentsFromRows(rows) {
   let success = 0;
   const failures = [];
   for (const row of rows) {
-    const base = row.name;
+    const base = studentLoginIdBase(row.name, row.birthday4);
     let loginId = row.loginId || base;
     let count = 2;
     while (usedLoginIds.has(loginId)) {
@@ -2140,6 +2140,14 @@ async function syncStudentSchedules(studentId, scheduleData) {
   }
 }
 
+// 학년이 바뀌어도 아이디가 안 바뀌고, 모든 학생에게 일관되게 적용되도록
+// "이름+학부모휴대폰 뒤 4자리"를 기본값으로 씁니다. 생일은 모르는 학생이 있지만
+// 학부모휴대폰은 필수 입력이라 항상 값이 있어요 (동명이인이 많아서 이름만 쓰면 겹치기 쉬워요).
+function studentLoginIdBase(name, parentPhone) {
+  const tail = phoneTail(parentPhone || "");
+  return tail ? `${name}${tail}` : name;
+}
+
 function validateStudentPhones(data) {
   const parentPhone = formatPhone(data.parentPhone);
   if (!isValidPhone(parentPhone)) {
@@ -2161,7 +2169,7 @@ async function addStudent(form, data) {
   if (!studyPlans) return false;
   const phones = validateStudentPhones(data);
   if (!phones) return false;
-  const base = data.name.trim();
+  const base = studentLoginIdBase(data.name.trim(), phones.parentPhone);
   let loginId = data.loginId?.trim() || base;
   let count = 2;
   while (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
@@ -2189,7 +2197,7 @@ async function updateStudent(form, data) {
   if (!student) return false;
   const phones = validateStudentPhones(data);
   if (!phones) return false;
-  const loginId = data.loginId?.trim() || data.name.trim();
+  const loginId = data.loginId?.trim() || studentLoginIdBase(data.name.trim(), phones.parentPhone);
   const duplicate = toList(state.students).some(item => item.id !== student.id && item.loginId === loginId)
     || toList(state.teachers).some(item => item.loginId === loginId);
   if (duplicate) {
