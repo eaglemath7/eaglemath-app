@@ -740,7 +740,10 @@ function renderAdminStudentFilters() {
   const schools = [...new Set(toList(state.students).map(student => student.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
   return `
     <div class="grid three">
-      <input data-action="searchAdminStudent" value="${escapeHtml(adminStudentQuery)}" placeholder="이름·아이디·전화번호로 검색" />
+      <div class="search-with-button">
+        <input data-action="searchAdminStudent" value="${escapeHtml(adminStudentQuery)}" placeholder="이름·아이디·전화번호로 검색" />
+        <button type="button" data-action="searchAdminStudentGo">검색</button>
+      </div>
       <select data-action="filterAdminStudentGrade">
         <option value="">학년 전체</option>
         ${GRADES.map(g => `<option value="${g}" ${g === adminStudentGrade ? "selected" : ""}>${g}</option>`).join("")}
@@ -1390,7 +1393,10 @@ function renderStudentPickerFilters(activeStudents) {
   const school = modal.pickerSchool || "";
   return `
     <div class="grid three">
-      <input data-action="searchPickerStudent" value="${escapeHtml(query)}" placeholder="학생 이름으로 검색" />
+      <div class="search-with-button">
+        <input data-action="searchPickerStudent" value="${escapeHtml(query)}" placeholder="학생 이름으로 검색" />
+        <button type="button" data-action="searchPickerStudentGo">검색</button>
+      </div>
       <select data-action="filterPickerGrade">
         <option value="">학년 전체</option>
         ${GRADES.map(g => `<option value="${g}" ${g === grade ? "selected" : ""}>${g}</option>`).join("")}
@@ -1937,6 +1943,16 @@ async function handleAction(event) {
     return;
   }
   if (action === "closeModal") modal = null;
+  if (action === "searchAdminStudentGo") {
+    clearTimeout(searchRenderTimer);
+    const input = document.querySelector("input[data-action='searchAdminStudent']");
+    adminStudentQuery = (input?.value || "").trim();
+  }
+  if (action === "searchPickerStudentGo") {
+    clearTimeout(searchRenderTimer);
+    const input = document.querySelector("input[data-action='searchPickerStudent']");
+    modal.pickerQuery = (input?.value || "").trim();
+  }
   if (action === "selectAllPeriod") {
     toList(state.schedules)
       .filter(s => s.day === todayDay() && s.period === selectedPeriod && toList(s.teacherIds).includes(session.id))
