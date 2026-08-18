@@ -161,7 +161,10 @@ async function loadAllData() {
       loginId: profile.login_id || "", studyPlans: toList(row.study_plans),
       active: profile.active !== false
     };
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  // 학생 목록을 이름 가나다순으로 한 번만 정렬해두면, 관리자 학생 표/시간표 배정/
+  // 교재 일괄 설정 등 state.students를 그대로 나열하는 모든 화면이 자동으로
+  // 가나다순으로 보입니다(등록한 순서가 아니라).
 
   state.periods = toList(periodsRes.data).map((row) => ({
     id: row.id, name: row.name, startTime: (row.start_time || "").slice(0, 5), endTime: (row.end_time || "").slice(0, 5),
