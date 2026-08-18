@@ -69,6 +69,11 @@ let searchRenderTimer = null;
 let listenersReady = false;
 let studentViewDate = todayIso();
 let calendarMonth = todayIso().slice(0, 7);
+// 관리자 화면 "학생" 표 검색/필터 상태. 모달이 아니라 항상 떠 있는 표라서
+// modal 객체가 아니라 이렇게 별도 전역 변수로 둡니다.
+let adminStudentQuery = "";
+let adminStudentGrade = "";
+let adminStudentSchool = "";
 let syncStatus = "불러오는 중";
 
 window.addEventListener("error", (event) => {
@@ -721,6 +726,33 @@ function renderStudentProgress(student) {
   }).join("")}</span>`;
 }
 
+function adminFilteredStudents() {
+  const query = adminStudentQuery.trim();
+  return toList(state.students).filter(student => {
+    if (adminStudentGrade && student.schoolYear !== adminStudentGrade) return false;
+    if (adminStudentSchool && student.schoolName !== adminStudentSchool) return false;
+    if (query && !(`${student.name} ${student.loginId} ${student.parentPhone}`).includes(query)) return false;
+    return true;
+  });
+}
+
+function renderAdminStudentFilters() {
+  const schools = [...new Set(toList(state.students).map(student => student.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
+  return `
+    <div class="grid three">
+      <input data-action="searchAdminStudent" value="${escapeHtml(adminStudentQuery)}" placeholder="이름·아이디·전화번호로 검색" />
+      <select data-action="filterAdminStudentGrade">
+        <option value="">학년 전체</option>
+        ${GRADES.map(g => `<option value="${g}" ${g === adminStudentGrade ? "selected" : ""}>${g}</option>`).join("")}
+      </select>
+      <select data-action="filterAdminStudentSchool">
+        <option value="">학교 전체</option>
+        ${schools.map(sc => `<option value="${escapeHtml(sc)}" ${sc === adminStudentSchool ? "selected" : ""}>${escapeHtml(sc)}</option>`).join("")}
+      </select>
+    </div>
+  `;
+}
+
 function renderAdmin() {
   const visibleRecords = toList(state.records)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -752,10 +784,12 @@ function renderAdmin() {
       <section class="grid two">
         <div class="panel">
           <h2 class="section-title">학생</h2>
+          ${renderAdminStudentFilters()}
+          <div class="muted small">${adminFilteredStudents().length}명 표시 중 (전체 ${toList(state.students).length}명)</div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
-              <tbody>${toList(state.students).map(s => `
+              <tbody>${adminFilteredStudents().map(s => `
                 <tr>
                   <td>${escapeHtml(s.name)} ${!s.active ? `<span class="badge bad">숨김</span>` : ""}</td>
                   <td>${escapeHtml(s.schoolYear || "-")}</td>
@@ -1333,17 +1367,56 @@ function renderPeriodForm(compact = false, period = null) {
   `;
 }
 
+// 시간표 배정 / 교재 일괄 설정 두 화면이 똑같은 "학생 여러 명 고르기" 패턴을
+// 쓰고 있어서(둘 다 106명 전체를 카드로 쭉 나열), 이름 검색 + 학년/학교 필터를
+// 공용 헬퍼로 만들어 같이 씁니다. 한 번에 모달이 하나만 열려 있으니
+// modal.pickerQuery/pickerGrade/pickerSchool 필드를 그대로 공유해도 안전해요.
+function studentPickerList(activeStudents) {
+  const query = (modal.pickerQuery || "").trim();
+  const grade = modal.pickerGrade || "";
+  const school = modal.pickerSchool || "";
+  return activeStudents.filter(student => {
+    if (grade && student.schoolYear !== grade) return false;
+    if (school && student.schoolName !== school) return false;
+    if (query && !(`${student.name} ${student.loginId}`).includes(query)) return false;
+    return true;
+  });
+}
+
+function renderStudentPickerFilters(activeStudents) {
+  const schools = [...new Set(activeStudents.map(student => student.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
+  const query = modal.pickerQuery || "";
+  const grade = modal.pickerGrade || "";
+  const school = modal.pickerSchool || "";
+  return `
+    <div class="grid three">
+      <input data-action="searchPickerStudent" value="${escapeHtml(query)}" placeholder="학생 이름으로 검색" />
+      <select data-action="filterPickerGrade">
+        <option value="">학년 전체</option>
+        ${GRADES.map(g => `<option value="${g}" ${g === grade ? "selected" : ""}>${g}</option>`).join("")}
+      </select>
+      <select data-action="filterPickerSchool">
+        <option value="">학교 전체</option>
+        ${schools.map(sc => `<option value="${escapeHtml(sc)}" ${sc === school ? "selected" : ""}>${escapeHtml(sc)}</option>`).join("")}
+      </select>
+    </div>
+  `;
+}
+
 function renderScheduleForm() {
   const selectedSlots = toList(modal.scheduleSlots);
   const activeStudents = toList(state.students).filter(s => s.active);
+  const pickerStudents = studentPickerList(activeStudents);
   const selectedStudentIds = toList(modal.scheduleStudentIds);
   const selectedStudentSchedules = toList(state.schedules).filter(schedule => selectedStudentIds.includes(schedule.studentId));
   return `
     <form class="stack" data-form="schedule">
       <div class="between"><h2 class="section-title">시간표 배정</h2><button type="button" data-action="closeModal">닫기</button></div>
       <label>학생 중복 선택
+        ${renderStudentPickerFilters(activeStudents)}
+        <div class="muted small">${pickerStudents.length}명 표시 중 (전체 ${activeStudents.length}명)</div>
         <div class="student-picker">
-          ${activeStudents.map(student => `<button type="button" class="student-button ${selectedStudentIds.includes(student.id) ? "selected" : ""}" data-action="pickScheduleStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${escapeHtml(student.schoolYear || student.loginId)}</span></button>`).join("")}
+          ${pickerStudents.map(student => `<button type="button" class="student-button ${selectedStudentIds.includes(student.id) ? "selected" : ""}" data-action="pickScheduleStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${escapeHtml(student.schoolYear || student.loginId)}</span></button>`).join("")}
         </div>
         <input type="hidden" name="studentIds" value="${escapeHtml(JSON.stringify(selectedStudentIds))}" />
       </label>
@@ -1443,12 +1516,15 @@ function renderEditScheduleForm(schedule = {}) {
 function renderBulkMaterialForm() {
   const selectedStudentIds = toList(modal.materialStudentIds);
   const activeStudents = toList(state.students).filter(s => s.active);
+  const pickerStudents = studentPickerList(activeStudents);
   return `
     <form class="stack" data-form="bulkMaterial">
       <div class="between"><h2 class="section-title">교재 일괄 설정</h2><button type="button" data-action="closeModal">닫기</button></div>
       <label>학생 중복 선택
+        ${renderStudentPickerFilters(activeStudents)}
+        <div class="muted small">${pickerStudents.length}명 표시 중 (전체 ${activeStudents.length}명)</div>
         <div class="student-picker">
-          ${activeStudents.map(student => `<button type="button" class="student-button ${selectedStudentIds.includes(student.id) ? "selected" : ""}" data-action="pickMaterialStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${escapeHtml(student.schoolYear || student.loginId)}</span></button>`).join("")}
+          ${pickerStudents.map(student => `<button type="button" class="student-button ${selectedStudentIds.includes(student.id) ? "selected" : ""}" data-action="pickMaterialStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${escapeHtml(student.schoolYear || student.loginId)}</span></button>`).join("")}
         </div>
         <input type="hidden" name="studentIds" value="${escapeHtml(JSON.stringify(selectedStudentIds))}" />
         <div class="muted small" data-material-count>${selectedStudentIds.length}명 선택됨</div>
@@ -1774,6 +1850,66 @@ function handleGlobalInput(event) {
     if (unitSelect) {
       unitSelect.replaceChildren(new Option("선택 안 함", ""), ...units.map(unit => new Option(unit.replace(/^\S+\s+/, ""), unit)));
     }
+    return;
+  }
+
+  const adminSearch = event.target.closest("input[data-action='searchAdminStudent']");
+  if (adminSearch) {
+    if (event.isComposing || event.inputType === "insertCompositionText") return;
+    adminStudentQuery = adminSearch.value.trim();
+    clearTimeout(searchRenderTimer);
+    searchRenderTimer = setTimeout(() => {
+      render();
+      const nextSearch = document.querySelector("input[data-action='searchAdminStudent']");
+      if (nextSearch) {
+        nextSearch.focus();
+        nextSearch.setSelectionRange(nextSearch.value.length, nextSearch.value.length);
+      }
+    }, 450);
+    return;
+  }
+
+  const adminGrade = event.target.closest("select[data-action='filterAdminStudentGrade']");
+  if (adminGrade) {
+    adminStudentGrade = adminGrade.value;
+    render();
+    return;
+  }
+
+  const adminSchool = event.target.closest("select[data-action='filterAdminStudentSchool']");
+  if (adminSchool) {
+    adminStudentSchool = adminSchool.value;
+    render();
+    return;
+  }
+
+  const pickerSearch = event.target.closest("input[data-action='searchPickerStudent']");
+  if (pickerSearch) {
+    if (event.isComposing || event.inputType === "insertCompositionText") return;
+    modal.pickerQuery = pickerSearch.value.trim();
+    clearTimeout(searchRenderTimer);
+    searchRenderTimer = setTimeout(() => {
+      render();
+      const nextSearch = document.querySelector("input[data-action='searchPickerStudent']");
+      if (nextSearch) {
+        nextSearch.focus();
+        nextSearch.setSelectionRange(nextSearch.value.length, nextSearch.value.length);
+      }
+    }, 450);
+    return;
+  }
+
+  const pickerGrade = event.target.closest("select[data-action='filterPickerGrade']");
+  if (pickerGrade) {
+    modal.pickerGrade = pickerGrade.value;
+    render();
+    return;
+  }
+
+  const pickerSchool = event.target.closest("select[data-action='filterPickerSchool']");
+  if (pickerSchool) {
+    modal.pickerSchool = pickerSchool.value;
+    render();
     return;
   }
 
