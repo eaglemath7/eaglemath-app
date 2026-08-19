@@ -1071,7 +1071,12 @@ function renderRecordForm(mode, record = {}) {
   const selectedPlans = selectedStudentData.flatMap(student => toList(student.studyPlans));
   const currentMaterials = selectedPlans.map(plan => plan.material).filter(Boolean);
   const defaultMaterial = record.material || (new Set(currentMaterials).size === 1 ? currentMaterials[0] : "");
-  const materialOptions = currentMaterials.length ? [...new Set(currentMaterials)] : toList(state.materials);
+  // 같은 교재를 학년·학기만 다르게 여러 번 배정한 학생이 있을 수 있어서, 교재
+  // 이름만으로 옵션을 합치면 안 됩니다(어느 학기 걸 고르는지 구분이 안 되니까).
+  // 교재+학년+학기 조합별로 별도 옵션을 만들고, 라벨에 학년·학기를 붙여 구분합니다.
+  const materialPlanOptions = selectedPlans.length
+    ? [...new Map(selectedPlans.filter(plan => plan.material).map(plan => [`${plan.material}|${plan.grade}|${plan.term}`, plan])).values()]
+    : toList(state.materials).map(material => ({ material, grade: "", term: "" }));
   const matchingPlans = defaultMaterial ? selectedPlans.filter(plan => plan.material === defaultMaterial) : selectedPlans;
   const curriculumKeys = [...new Set(matchingPlans.map(plan => `${plan.grade}|${plan.term}`))];
   const [recordGrade = "", recordTerm = ""] = curriculumKeys.length === 1 ? curriculumKeys[0].split("|") : [];
@@ -1098,7 +1103,7 @@ function renderRecordForm(mode, record = {}) {
       <div class="grid two">
         <label>교재명 <select name="material" data-action="selectRecordMaterial">
           <option value="">선택 안 함</option>
-          ${materialOptions.map(v => { const plan = selectedPlans.find(item => item.material === v); return `<option value="${escapeHtml(v)}" data-grade="${escapeHtml(plan?.grade || "")}" data-term="${escapeHtml(plan?.term || "")}" ${v === defaultMaterial ? "selected" : ""}>${escapeHtml(v)}${plan ? ` · ${escapeHtml(plan.grade)} ${escapeHtml(plan.term)}` : ""}</option>`; }).join("")}
+          ${materialPlanOptions.map(plan => `<option value="${escapeHtml(plan.material)}" data-grade="${escapeHtml(plan.grade || "")}" data-term="${escapeHtml(plan.term || "")}" ${plan.material === defaultMaterial && matchingPlans.length <= 1 ? "selected" : ""}>${escapeHtml(plan.material)}${plan.grade ? ` · ${escapeHtml(plan.grade)} ${escapeHtml(plan.term)}` : ""}</option>`).join("")}
         </select></label>
         <label>교재 직접입력 <input name="materialCustom" value="" placeholder="목록에 없으면 입력" /></label>
       </div>
@@ -1230,11 +1235,31 @@ function renderAiAssistModal() {
   `;
 }
 
+// 학생 한 명이 같은 교재를 학년/학기만 다르게 여러 번 배정받을 수 있어야 하고
+// (예: 겨울방학 때 배웠던 쎈을 다음 학기에 다시), 교재를 5권 넘게 쓰는 학생도
+// 있어서 개수 제한도 없어야 합니다. 그래서 "교재 하나당 체크박스 한 줄"이 아니라
+// 자유롭게 추가·삭제하는 행 목록으로 만들었습니다. 행을 추가/삭제할 때는 전체
+// 폼을 다시 그리면 다른 칸에 입력하던 내용이 날아가버리니(render()는 매번
+// innerHTML을 통째로 새로 씀), DOM을 직접 조작합니다 — handleNonRenderingAction의
+// addMaterialPlanRow/removeMaterialPlanRow 참고.
+let materialRowSeq = 0;
+function materialPlanRowHtml(plan = {}, index) {
+  const grade = plan.grade || "";
+  const term = plan.term || "1학기";
+  return `<div class="material-plan-row" data-material-row>
+    <input list="materialOptions" name="material_${index}" placeholder="교재명 (목록에서 선택 또는 직접 입력)" value="${escapeHtml(plan.material || "")}" />
+    <select name="materialGrade_${index}" aria-label="교재 학년"><option value="">학년</option>${GRADES.map(g => `<option ${g === grade ? "selected" : ""}>${g}</option>`).join("")}</select>
+    <select name="materialTerm_${index}" aria-label="교재 학기">${TERMS.map(t => `<option ${t === term ? "selected" : ""}>${t}</option>`).join("")}</select>
+    <button type="button" class="danger" data-action="removeMaterialPlanRow">삭제</button>
+  </div>`;
+}
+
 function renderStudentForm(student = null) {
   const slots = student ? toList(state.schedules).filter(item => item.studentId === student.id).map(item => ({ day: item.day, period: item.period })) : toList(modal.scheduleSlots);
   const existingSchedules = student ? toList(state.schedules).filter(item => item.studentId === student.id) : [];
   const teacherIds = [...new Set(existingSchedules.flatMap(item => toList(item.teacherIds)))];
   const studyPlans = student ? toList(student.studyPlans) : [];
+  materialRowSeq = Math.max(studyPlans.length, 1);
   return `
     <form class="stack" data-form="${student ? "studentEdit" : "student"}">
       <div class="between"><h2 class="section-title">${student ? "학생 수정" : "학생 등록"}</h2><button type="button" data-action="closeModal">닫기</button></div>
@@ -1264,18 +1289,13 @@ function renderStudentForm(student = null) {
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리로 자동 생성 (그래도 겹치면 -2, -3...)" /></label>
       <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
       <section class="panel stack curriculum-setup">
-        <div><strong>학습 교재와 교육과정</strong><div class="muted small">각 교재마다 실제로 공부하는 학년과 학기를 따로 지정합니다.</div></div>
-        <div class="material-plan-list">${toList(state.materials).map((material, index) => {
-          const plan = studyPlans.find(item => item.material === material);
-          const planGrade = plan?.grade || student?.schoolYear || "";
-          const planTerm = plan?.term || "1학기";
-          return `<div class="material-plan-row" data-material-row>
-            <label class="material-plan-check"><input type="checkbox" name="materials" value="${escapeHtml(material)}" ${plan ? "checked" : ""} />${escapeHtml(material)}</label>
-            <select name="materialGrade_${index}" aria-label="${escapeHtml(material)} 교재 학년"><option value="">학년</option>${GRADES.map(grade => `<option ${grade === planGrade ? "selected" : ""}>${grade}</option>`).join("")}</select>
-            <select name="materialTerm_${index}" aria-label="${escapeHtml(material)} 교재 학기">${TERMS.map(term => `<option ${term === planTerm ? "selected" : ""}>${term}</option>`).join("")}</select>
-          </div>`;
-        }).join("")}</div>
-        <div class="muted small">예: 학생 학년은 초5, 디딤돌은 초6 1학기, 쎈은 중1 1학기로 각각 설정할 수 있습니다.</div>
+        <div><strong>학습 교재와 교육과정</strong><div class="muted small">교재마다 실제로 공부하는 학년과 학기를 따로 지정합니다. 같은 교재를 학기만 다르게 여러 번 추가할 수 있고, 개수 제한도 없습니다.</div></div>
+        <datalist id="materialOptions">${toList(state.materials).map(m => `<option value="${escapeHtml(m)}"></option>`).join("")}</datalist>
+        <div class="material-plan-list" data-material-plan-list>${studyPlans.length
+          ? studyPlans.map((plan, index) => materialPlanRowHtml(plan, index)).join("")
+          : materialPlanRowHtml({ grade: student?.schoolYear || "" }, 0)}</div>
+        <button type="button" data-action="addMaterialPlanRow">+ 교재 추가</button>
+        <div class="muted small">예: 학생 학년은 초5, 디딤돌은 초6 1학기, 쎈은 중1 1학기 · 겨울방학 때 했던 쎈 초5 2학기를 다시 추가하는 것도 가능합니다.</div>
       </section>
       <section class="panel stack"><div><strong>정규 수업 시간표</strong><div class="muted small">학생 등록과 동시에 요일과 교시를 선택합니다.</div></div>
         <div class="weekly-period-grid">${DAYS.map(day => `<div class="day-column"><div class="day-title">${day}</div>${periodOptions().map(period => `<button type="button" class="${slots.some(slot => slot.day === day && slot.period === period) ? "selected" : ""}" data-action="pickStudentFormSlot" data-day="${day}" data-period-name="${escapeHtml(period)}">${periodTimeLabel(period)}</button>`).join("")}</div>`).join("")}</div>
@@ -1619,6 +1639,23 @@ function handleNonRenderingAction(button) {
 
   if (action === "applyAiSuggestion") {
     applyAiSuggestion(button);
+    return true;
+  }
+
+  if (action === "addMaterialPlanRow") {
+    const list = button.closest("form")?.querySelector("[data-material-plan-list]");
+    if (list) list.insertAdjacentHTML("beforeend", materialPlanRowHtml({ grade: list.closest("form").elements.schoolYear?.value || "" }, materialRowSeq++));
+    return true;
+  }
+
+  if (action === "removeMaterialPlanRow") {
+    const row = button.closest("[data-material-row]");
+    const list = row?.closest("[data-material-plan-list]");
+    row?.remove();
+    // 마지막 한 줄까지 지우면 다시 넣을 수 없게 되니, 빈 줄 하나는 항상 남겨둡니다.
+    if (list && !list.querySelector("[data-material-row]")) {
+      list.insertAdjacentHTML("beforeend", materialPlanRowHtml({}, materialRowSeq++));
+    }
     return true;
   }
 
@@ -2276,16 +2313,16 @@ function readStudentPlans(form) {
   const plans = [];
   let missingGrade = false;
   form.querySelectorAll("[data-material-row]").forEach(row => {
-    const checkbox = row.querySelector("input[name='materials']");
-    if (!checkbox?.checked) return;
+    const material = row.querySelector("input[name^='material_']")?.value.trim() || "";
+    if (!material) return;
     const selects = row.querySelectorAll("select");
     const grade = selects[0]?.value || "";
     const term = selects[1]?.value || "1학기";
     if (!grade) { missingGrade = true; return; }
-    plans.push({ material: checkbox.value, grade, term });
+    plans.push({ material, grade, term });
   });
   if (missingGrade) {
-    showMessage("선택한 교재마다 교재 학년을 지정해주세요.");
+    showMessage("입력한 교재마다 학년을 지정해주세요.");
     return null;
   }
   return plans;
@@ -2564,7 +2601,10 @@ async function applyBulkMaterial(data) {
   for (const studentId of studentIds) {
     const student = toList(state.students).find(s => s.id === studentId);
     if (!student) continue;
-    const plans = toList(student.studyPlans).filter(plan => plan.material !== material);
+    // 같은 교재라도 학년·학기가 다르면 별개 배정으로 취급합니다(같은 교재를
+    // 여러 학기에 걸쳐 배정하거나, 5권 넘게 배정하는 학생도 있어서). 완전히
+    // 똑같은 교재+학년+학기 조합만 덮어씁니다(중복 방지).
+    const plans = toList(student.studyPlans).filter(plan => !(plan.material === material && plan.grade === grade && plan.term === term));
     plans.push({ material, grade, term });
     const { error } = await supabase.from("students").update({ study_plans: plans }).eq("id", studentId);
     if (error) { showMessage(`${student.name} 교재 설정 실패: ${error.message}`); return false; }

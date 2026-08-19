@@ -375,24 +375,13 @@ label {
 }
 .material-plan-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1.4fr) minmax(86px, .7fr) minmax(86px, .7fr);
+  grid-template-columns: minmax(150px, 1.4fr) minmax(86px, .7fr) minmax(86px, .7fr) auto;
   gap: 8px;
   align-items: center;
 }
-.material-plan-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 7px 9px;
-  border-radius: 7px;
-  background: var(--soft);
-  font-size: 12px;
-}
-.material-plan-check input { width: auto; }
 @media (max-width: 640px) {
   .material-plan-row { grid-template-columns: 1fr 1fr; }
-  .material-plan-check { grid-column: 1 / -1; }
+  .material-plan-row input[name^="material_"] { grid-column: 1 / -1; }
 }
 .list {
   display: grid;
