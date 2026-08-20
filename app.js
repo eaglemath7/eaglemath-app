@@ -734,6 +734,50 @@ function renderStudentProgress(student) {
   }).join("")}</span>`;
 }
 
+function renderStudentDetail() {
+  const student = toList(state.students).find(s => s.id === modal.studentId);
+  if (!student) {
+    return `<div class="stack"><div class="between"><h2 class="section-title">학생 정보</h2><button type="button" data-action="closeModal">닫기</button></div><div class="empty">학생을 찾을 수 없습니다.</div></div>`;
+  }
+  const schedules = toList(state.schedules)
+    .filter(item => item.studentId === student.id)
+    .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || periodOptions().indexOf(a.period) - periodOptions().indexOf(b.period));
+  const progress = renderStudentProgress(student);
+  return `
+    <div class="stack">
+      <div class="between">
+        <div>
+          <h2 class="section-title">${escapeHtml(student.name)} ${!student.active ? `<span class="badge bad">숨김</span>` : ""}</h2>
+          <div class="muted small">${escapeHtml(student.schoolYear || "학년 미입력")} · ${escapeHtml(student.schoolName || "학교 미입력")}</div>
+        </div>
+        <div class="toolbar">
+          <button type="button" data-action="editStudent" data-id="${student.id}">정보 수정</button>
+          <button type="button" data-action="closeModal">닫기</button>
+        </div>
+      </div>
+      <section class="panel stack">
+        <strong>기본 정보</strong>
+        <div class="grid two">
+          <div><span class="muted small">로그인 아이디</span><div>${escapeHtml(student.loginId || "-")}</div></div>
+          <div><span class="muted small">생일 4자리</span><div>${escapeHtml(student.birthday4 || "-")}</div></div>
+          <div><span class="muted small">학생 휴대폰</span><div>${escapeHtml(student.studentPhone || "-")}</div></div>
+          <div><span class="muted small">학부모 휴대폰</span><div>${escapeHtml(student.parentPhone || "-")}</div></div>
+          <div><span class="muted small">학부모 성함</span><div>${escapeHtml(student.parentName || "-")}</div></div>
+          <div><span class="muted small">학부모 관계</span><div>${escapeHtml(student.parentRelation || "-")}</div></div>
+        </div>
+      </section>
+      <section class="panel stack">
+        <strong>시간표</strong>
+        ${schedules.length ? schedules.map(item => `<div class="schedule-line"><span>${escapeHtml(item.day)} · ${periodTimeInline(item.period)}</span><span class="badge">${escapeHtml(item.lessonType)}</span><span class="muted small">${toList(item.teacherIds).map(teacherName).join(", ") || "담당 미배정"}</span></div>`).join("") : `<div class="empty">배정된 시간표가 없습니다.</div>`}
+      </section>
+      <section class="panel stack">
+        <strong>교재 및 현재 진도</strong>
+        ${progress || `<div class="empty">등록된 교재가 없습니다.</div>`}
+      </section>
+    </div>
+  `;
+}
+
 function adminFilteredStudents() {
   const query = adminStudentQuery.trim();
   return toList(state.students).filter(student => {
@@ -802,7 +846,7 @@ function renderAdmin() {
               <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
               <tbody>${adminFilteredStudents().map(s => `
                 <tr>
-                  <td>${escapeHtml(s.name)} ${!s.active ? `<span class="badge bad">숨김</span>` : ""}</td>
+                  <td><button type="button" class="link-button" data-action="viewStudent" data-id="${s.id}">${escapeHtml(s.name)}</button> ${!s.active ? `<span class="badge bad">숨김</span>` : ""}</td>
                   <td>${escapeHtml(s.schoolYear || "-")}</td>
                   <td>${escapeHtml(s.loginId)}</td>
                   <td>${escapeHtml(s.parentPhone || "-")}</td>
@@ -1061,7 +1105,8 @@ function renderModal() {
     bulkMaterialForm: () => renderBulkMaterialForm(),
     studentImport: () => renderStudentImportModal(),
     academicEventForm: () => renderAcademicEventForm(),
-    calendarDay: () => renderCalendarDay()
+    calendarDay: () => renderCalendarDay(),
+    studentDetail: () => renderStudentDetail()
   };
   const content = renderers[modal.type]?.() || "";
   return `
@@ -2031,6 +2076,7 @@ async function handleAction(event) {
   if (action === "editRecord") modal = { type: "editRecord", recordId: idValue };
   if (action === "openStudentForm") modal = { type: "studentForm", scheduleSlots: [] };
   if (action === "editStudent") modal = { type: "editStudentForm", studentId: idValue, scheduleSlots: [] };
+  if (action === "viewStudent") modal = { type: "studentDetail", studentId: idValue };
   if (action === "openTeacherForm") modal = { type: "teacherForm" };
   if (action === "editTeacher") modal = { type: "editTeacherForm", teacherId: idValue };
   if (action === "openPeriodManager") modal = { type: "periodManager" };

@@ -59,6 +59,16 @@ button:disabled {
   opacity: .5;
   cursor: not-allowed;
 }
+button.link-button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--blue);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.link-button:hover { color: var(--red); }
 input, select, textarea {
   width: 100%;
   border: 1px solid var(--line);
