@@ -1120,6 +1120,23 @@ function renderModal() {
 
 function renderRecordForm(mode, record = {}) {
   const studentIds = mode === "edit" ? toList(record.studentIds) : Array.from(selectedStudents);
+  // 같은 학생들을 같은 날짜·교시로 다시 선택했을 때(예: 출석/과제만 먼저 체크해두고
+  // 나중에 수업 내용을 이어서 쓰려고 다시 들어온 경우), 새 빈 양식이 아니라 이미
+  // 저장된 기록을 불러와 이어서 쓸 수 있게 합니다. 안 그러면 이미 입력한 내용이
+  // 안 보여서 "내용이 사라졌다"고 오해하게 되고, 저장 시 중복 기록도 쌓입니다.
+  const existingByStudent = new Map();
+  if (mode !== "edit") {
+    const lessonDate = record.lessonDate || modal?.lessonDate || todayIso();
+    const period = record.period || selectedPeriod;
+    toList(state.records)
+      .filter(r => !r.hidden && r.lessonDate === lessonDate && r.period === period && toList(r.studentIds).some(id => studentIds.includes(id)))
+      .forEach(r => toList(r.studentIds).forEach(id => { if (studentIds.includes(id)) existingByStudent.set(id, r); }));
+  }
+  const resuming = existingByStudent.size > 0;
+  if (resuming) {
+    const sample = studentIds.map(id => existingByStudent.get(id)).find(Boolean);
+    if (sample) record = sample;
+  }
   const selectedStudentData = studentIds.map(studentId => toList(state.students).find(student => student.id === studentId)).filter(Boolean);
   const selectedPlans = selectedStudentData.flatMap(student => toList(student.studyPlans));
   const currentMaterials = selectedPlans.map(plan => plan.material).filter(Boolean);
@@ -1147,7 +1164,8 @@ function renderRecordForm(mode, record = {}) {
         <label>수업 구분 <select name="lessonType">${LESSON_TYPES.map(v => `<option ${v === normalizeLessonType(record.lessonType || "정규") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       </div>
       <input type="hidden" name="period" value="${escapeHtml(record.period || selectedPeriod)}" />
-      ${mode !== "edit" && studentIds.length > 1 ? `<div class="common-record-note"><strong>선택한 ${studentIds.length}명에게 공통으로 적용</strong><span>진도·수업 내용·과제를 한 번만 입력하세요. 학생별로 다른 내용만 아래에서 수정할 수 있습니다.</span></div>` : ""}
+      ${mode !== "edit" && resuming ? `<div class="common-record-note"><strong>이미 저장된 기록을 불러왔어요</strong><span>${existingByStudent.size}명은 이 날짜·교시에 이미 기록이 있어 기존 내용을 불러왔습니다. 지금 저장하면 새로 추가되지 않고 기존 기록이 업데이트됩니다.</span></div>` : ""}
+      ${mode !== "edit" && !resuming && studentIds.length > 1 ? `<div class="common-record-note"><strong>선택한 ${studentIds.length}명에게 공통으로 적용</strong><span>진도·수업 내용·과제를 한 번만 입력하세요. 학생별로 다른 내용만 아래에서 수정할 수 있습니다.</span></div>` : ""}
       <div class="grid two">
         <label>출석 <select name="attendance" data-common-field="attendance">${ATTENDANCE.map(v => `<option ${v === normalizeAttendance(record.attendance || "정시출석") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
         <label>과제수행도 <select name="homework" data-common-field="homework">${HOMEWORK.map(v => `<option ${v === normalizeHomework(record.homework || "완벽") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
@@ -1171,7 +1189,7 @@ function renderRecordForm(mode, record = {}) {
       <label>테스트 <input name="testName" data-common-field="testName" value="${escapeHtml([record.testName, record.testScore].filter(Boolean).join(" "))}" placeholder="예: Daily Test 12/20 또는 단원평가 85" /></label>
       <input type="hidden" name="testScore" value="" />
       <label>다음 수업 계획 <input name="nextPlan" data-common-field="nextPlan" value="${escapeHtml(record.nextPlan || "")}" /></label>
-      ${mode !== "edit" && studentIds.length > 1 ? renderIndividualRecordFields(studentIds, record) : ""}
+      ${mode !== "edit" && studentIds.length > 1 ? renderIndividualRecordFields(studentIds, record, existingByStudent) : ""}
       <datalist id="materials">${toList(state.materials).map(v => `<option value="${escapeHtml(v)}"></option>`).join("")}</datalist>
       <datalist id="units">${toList(state.units).map(v => `<option value="${escapeHtml(v)}"></option>`).join("")}</datalist>
       <div class="form-actions">
@@ -1209,32 +1227,40 @@ function renderAiPromptTool(record = {}) {
   `;
 }
 
-function renderIndividualRecordFields(studentIds, record = {}) {
+function renderIndividualRecordFields(studentIds, record = {}, existingByStudent = new Map()) {
   return `
     <section class="panel stack">
       <div>
         <strong>학생별 개별 수정</strong>
         <div class="muted small">위의 공통 진도와 과제가 기본으로 들어갑니다. 내용이 다른 학생만 열어서 수정하세요.</div>
       </div>
-      ${studentIds.map(studentId => `
+      ${studentIds.map(studentId => {
+        // 이미 이 학생 몫으로 저장된 기록이 있으면(위 renderRecordForm의 이어쓰기
+        // 로직) 공통값이 아니라 그 학생 본인의 값을 기본으로 보여줍니다. 그리고
+        // data-dirty="true"를 미리 붙여서, 나중에 공통 필드를 고쳐도 이 학생의
+        // 개별 값이 조용히 덮어써지지 않게 합니다(이미 다른 학생과 다른 내용이니까).
+        const own = existingByStudent.get(studentId) || record;
+        const dirty = existingByStudent.has(studentId) ? ` data-dirty="true"` : "";
+        return `
         <details class="student-detail">
           <summary>${escapeHtml(studentName(studentId))}</summary>
           <div class="stack">
             <div class="grid three">
-              <label>출석 <select name="attendance_${studentId}" data-individual-field="attendance" data-student-id="${studentId}">${ATTENDANCE.map(v => `<option ${v === normalizeAttendance(record.attendance || "정시출석") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
-              <label>과제수행도 <select name="homework_${studentId}" data-individual-field="homework" data-student-id="${studentId}">${HOMEWORK.map(v => `<option ${v === normalizeHomework(record.homework || "완벽") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
-              <label>수업집중도 <select name="focus_${studentId}" data-individual-field="focus" data-student-id="${studentId}"><option value="">선택 안 함</option>${FOCUS_LEVELS.map(v => `<option ${v === record.focus ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>출석 <select name="attendance_${studentId}" data-individual-field="attendance" data-student-id="${studentId}"${dirty}>${ATTENDANCE.map(v => `<option ${v === normalizeAttendance(own.attendance || "정시출석") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>과제수행도 <select name="homework_${studentId}" data-individual-field="homework" data-student-id="${studentId}"${dirty}>${HOMEWORK.map(v => `<option ${v === normalizeHomework(own.homework || "완벽") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>수업집중도 <select name="focus_${studentId}" data-individual-field="focus" data-student-id="${studentId}"${dirty}><option value="">선택 안 함</option>${FOCUS_LEVELS.map(v => `<option ${v === own.focus ? "selected" : ""}>${v}</option>`).join("")}</select></label>
             </div>
-            <label>수업 내용 <textarea name="content_${studentId}" data-individual-field="content" data-student-id="${studentId}">${escapeHtml(record.content || "")}</textarea></label>
-            <label>오늘의 과제 <textarea name="assignment_${studentId}" data-individual-field="assignment" data-student-id="${studentId}">${escapeHtml(record.assignment || "")}</textarea></label>
-            <label>학부모님께 드리는 글 <textarea name="parentMessage_${studentId}" data-individual-field="parentMessage" data-student-id="${studentId}">${escapeHtml(record.parentMessage || "")}</textarea></label>
-            <label>학생에게 보내는 글 <textarea name="studentMessage_${studentId}" data-individual-field="studentMessage" data-student-id="${studentId}">${escapeHtml(record.studentMessage || "")}</textarea></label>
-            <label>리마인드 키워드 <input name="keywords_${studentId}" data-individual-field="keywords" data-student-id="${studentId}" value="${escapeHtml(record.keywords || "")}" /></label>
-            <label>테스트 <input name="testName_${studentId}" data-individual-field="testName" data-student-id="${studentId}" value="${escapeHtml([record.testName, record.testScore].filter(Boolean).join(" "))}" /></label>
-            <label>다음 수업 계획 <input name="nextPlan_${studentId}" data-individual-field="nextPlan" data-student-id="${studentId}" value="${escapeHtml(record.nextPlan || "")}" /></label>
+            <label>수업 내용 <textarea name="content_${studentId}" data-individual-field="content" data-student-id="${studentId}"${dirty}>${escapeHtml(own.content || "")}</textarea></label>
+            <label>오늘의 과제 <textarea name="assignment_${studentId}" data-individual-field="assignment" data-student-id="${studentId}"${dirty}>${escapeHtml(own.assignment || "")}</textarea></label>
+            <label>학부모님께 드리는 글 <textarea name="parentMessage_${studentId}" data-individual-field="parentMessage" data-student-id="${studentId}"${dirty}>${escapeHtml(own.parentMessage || "")}</textarea></label>
+            <label>학생에게 보내는 글 <textarea name="studentMessage_${studentId}" data-individual-field="studentMessage" data-student-id="${studentId}"${dirty}>${escapeHtml(own.studentMessage || "")}</textarea></label>
+            <label>리마인드 키워드 <input name="keywords_${studentId}" data-individual-field="keywords" data-student-id="${studentId}"${dirty} value="${escapeHtml(own.keywords || "")}" /></label>
+            <label>테스트 <input name="testName_${studentId}" data-individual-field="testName" data-student-id="${studentId}"${dirty} value="${escapeHtml([own.testName, own.testScore].filter(Boolean).join(" "))}" /></label>
+            <label>다음 수업 계획 <input name="nextPlan_${studentId}" data-individual-field="nextPlan" data-student-id="${studentId}"${dirty} value="${escapeHtml(own.nextPlan || "")}" /></label>
           </div>
         </details>
-      `).join("")}
+      `;
+      }).join("")}
     </section>
   `;
 }
@@ -2354,9 +2380,15 @@ async function saveRecord(mode, data) {
 
   const studentIds = Array.from(selectedStudents);
   if (!studentIds.length) return false;
-  const groupId = crypto.randomUUID();
-  const rows = studentIds.map(studentId => ({
-    group_id: groupId, student_id: studentId,
+  // 같은 학생을 같은 날짜·교시로 다시 선택해서 저장할 때(예: 공통 내용을 먼저
+  // 저장해두고 나중에 이어서 쓰는 경우) 새 기록을 또 만들지 않고, 그 학생의
+  // 기존 기록을 찾아 업데이트합니다. 안 그러면 같은 수업이 중복으로 쌓입니다.
+  const existingByStudent = new Map();
+  toList(state.records)
+    .filter(r => !r.hidden && r.lessonDate === data.lessonDate && r.period === data.period && toList(r.studentIds).some(id => studentIds.includes(id)))
+    .forEach(r => toList(r.studentIds).forEach(id => { if (studentIds.includes(id)) existingByStudent.set(id, r); }));
+
+  const fieldsFor = (studentId) => ({
     lesson_date: data.lessonDate, period: data.period, lesson_type: data.lessonType,
     attendance: data[`attendance_${studentId}`] || data.attendance,
     homework: data[`homework_${studentId}`] || data.homework,
@@ -2369,9 +2401,28 @@ async function saveRecord(mode, data) {
     keywords: data[`keywords_${studentId}`] ?? data.keywords ?? null,
     test_name: data[`testName_${studentId}`] ?? data.testName ?? null,
     next_plan: data[`nextPlan_${studentId}`] ?? data.nextPlan ?? null
-  }));
-  const { error } = await supabase.from("lesson_records").insert(rows);
-  if (error) { showMessage(`기록 저장 실패: ${error.message}`); return false; }
+  });
+
+  const groupId = crypto.randomUUID();
+  const insertRows = [];
+  const updates = [];
+  for (const studentId of studentIds) {
+    const existing = existingByStudent.get(studentId);
+    if (existing) {
+      updates.push({ id: existing.id, payload: { ...fieldsFor(studentId), version: existing.version + 1 } });
+    } else {
+      insertRows.push({ group_id: groupId, student_id: studentId, ...fieldsFor(studentId) });
+    }
+  }
+  if (insertRows.length) {
+    const { error } = await supabase.from("lesson_records").insert(insertRows);
+    if (error) { showMessage(`기록 저장 실패: ${error.message}`); return false; }
+  }
+  for (const update of updates) {
+    const { error } = await supabase.from("lesson_records").update(update.payload).eq("id", update.id);
+    if (error) { showMessage(`기록 저장 실패: ${error.message}`); return false; }
+    await supabase.from("record_confirmations").delete().eq("record_id", update.id);
+  }
   if (material) {
     for (const studentId of studentIds) await addStudyPlanIfMissing(studentId, material);
   }
