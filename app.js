@@ -608,7 +608,7 @@ function renderCalendarDay() {
     ${holiday ? `<div class="event-card holiday-card"><strong>${escapeHtml(holiday)}</strong><span>대한민국 공휴일</span></div>` : ""}
     ${events.map(item => `<div class="event-card"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.type)}${item.note ? ` · ${escapeHtml(item.note)}` : ""}</span></div>`).join("")}
     ${canTeacher() ? `<section class="stack calendar-student-select"><div class="between"><div><strong>이 날짜의 학생 선택</strong><div class="muted small">교시를 골라 예정 학생을 확인하거나, 검색해서 다른 학생도 함께 선택할 수 있어요.</div></div><div class="toolbar">${scheduledIds.length ? `<button data-action="selectCalendarScheduled" data-ids="${escapeHtml(scheduledIds.join(","))}">예정 학생 전체 선택</button>` : ""}<span class="badge">${selectedStudents.size}명 선택</span></div></div>
-      ${dayPeriods.length ? `<div class="tabs">${dayPeriods.map(p => `<button class="${p === modal.calendarPeriod ? "selected" : ""}" data-action="pickCalendarPeriod" data-period="${p}">${periodTimeLabel(p)}</button>`).join("")}</div>` : ""}
+      ${dayPeriods.length ? `<div class="tabs">${dayPeriods.map(p => `<button class="${p === modal.calendarPeriod ? "selected" : ""}" data-action="pickCalendarPeriod" data-cal-period="${p}">${periodTimeLabel(p)}</button>`).join("")}</div>` : ""}
       ${scheduledIds.length ? `<div class="student-picker">${scheduledIds.map(idValue => { const student = state.students.find(item => item.id === idValue); return student ? `<button class="student-button ${selectedStudents.has(idValue) ? "selected" : ""}" data-action="pickCalendarStudent" data-id="${idValue}">${escapeHtml(student.name)}<span>예정 수업</span></button>` : ""; }).join("")}</div>` : `<div class="muted small">${dayPeriods.length ? "이 교시에 예정된 학생이 없습니다." : "예정된 학생이 없습니다."} 아래에서 다른 학생을 검색하세요.</div>`}
       <input data-action="searchCalendarStudent" value="${escapeHtml(query)}" placeholder="당일 수업이 아닌 학생도 이름·아이디로 검색" />
       ${searchedStudents.length ? `<div class="student-picker">${searchedStudents.map(student => `<button class="student-button ${selectedStudents.has(student.id) ? "selected" : ""}" data-action="pickCalendarStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${scheduledIds.includes(student.id) ? "예정 학생" : "추가 학생"}</span></button>`).join("")}</div>` : ""}
@@ -2052,7 +2052,7 @@ async function handleAction(event) {
     modal = { type: "calendarDay", date: event.currentTarget.dataset.date, studentId: event.currentTarget.dataset.studentId || "", query: "" };
   }
   if (action === "pickCalendarPeriod") {
-    modal.calendarPeriod = event.currentTarget.dataset.period;
+    modal.calendarPeriod = event.currentTarget.dataset.calPeriod;
   }
   if (action === "pickCalendarStudent") {
     selectedStudents.has(idValue) ? selectedStudents.delete(idValue) : selectedStudents.add(idValue);
