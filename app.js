@@ -595,13 +595,21 @@ function renderCalendarDay() {
   const events = eventsOnDate(date, session.type === "student");
   const holiday = holidayOnDate(date);
   const query = modal.query || "";
-  const scheduledIds = [...new Set(schedules.map(item => item.studentId))];
+  // 날짜가 지났어도(오늘이 아니어도) "오늘 수업" 화면처럼 교시별로 나눠서 학생을
+  // 고를 수 있어야 해서, 그 날짜에 실제로 수업이 있는 교시만 탭으로 보여줍니다.
+  // 탭이 없으면(그 날짜에 예정 수업이 아예 없으면) 예정 학생 없이 검색만 가능합니다.
+  const allPeriods = periodOptions();
+  const dayPeriods = allPeriods.filter(p => schedules.some(s => s.period === p));
+  if (dayPeriods.length && !dayPeriods.includes(modal.calendarPeriod)) modal.calendarPeriod = dayPeriods[0];
+  const periodSchedules = dayPeriods.length ? schedules.filter(s => s.period === modal.calendarPeriod) : schedules;
+  const scheduledIds = [...new Set(periodSchedules.map(item => item.studentId))];
   const searchedStudents = canTeacher() && query ? toList(state.students).filter(student => student.active && (`${student.name} ${student.loginId} ${student.parentPhone} ${student.studentPhone}`).includes(query)).slice(0, 10) : [];
   return `<div class="stack"><div class="between"><h2 class="section-title">${formatKoreanDate(date)}</h2><button data-action="closeModal">닫기</button></div>
     ${holiday ? `<div class="event-card holiday-card"><strong>${escapeHtml(holiday)}</strong><span>대한민국 공휴일</span></div>` : ""}
     ${events.map(item => `<div class="event-card"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.type)}${item.note ? ` · ${escapeHtml(item.note)}` : ""}</span></div>`).join("")}
-    ${canTeacher() ? `<section class="stack calendar-student-select"><div class="between"><div><strong>이 날짜의 학생 선택</strong><div class="muted small">예정 학생과 검색 학생을 함께 여러 명 선택할 수 있어요.</div></div><div class="toolbar">${scheduledIds.length ? `<button data-action="selectCalendarScheduled" data-ids="${escapeHtml(scheduledIds.join(","))}">예정 학생 전체 선택</button>` : ""}<span class="badge">${selectedStudents.size}명 선택</span></div></div>
-      ${scheduledIds.length ? `<div class="student-picker">${scheduledIds.map(idValue => { const student = state.students.find(item => item.id === idValue); return student ? `<button class="student-button ${selectedStudents.has(idValue) ? "selected" : ""}" data-action="pickCalendarStudent" data-id="${idValue}">${escapeHtml(student.name)}<span>예정 수업</span></button>` : ""; }).join("")}</div>` : `<div class="muted small">예정된 학생이 없습니다. 아래에서 다른 학생을 검색하세요.</div>`}
+    ${canTeacher() ? `<section class="stack calendar-student-select"><div class="between"><div><strong>이 날짜의 학생 선택</strong><div class="muted small">교시를 골라 예정 학생을 확인하거나, 검색해서 다른 학생도 함께 선택할 수 있어요.</div></div><div class="toolbar">${scheduledIds.length ? `<button data-action="selectCalendarScheduled" data-ids="${escapeHtml(scheduledIds.join(","))}">예정 학생 전체 선택</button>` : ""}<span class="badge">${selectedStudents.size}명 선택</span></div></div>
+      ${dayPeriods.length ? `<div class="tabs">${dayPeriods.map(p => `<button class="${p === modal.calendarPeriod ? "selected" : ""}" data-action="pickCalendarPeriod" data-period="${p}">${periodTimeLabel(p)}</button>`).join("")}</div>` : ""}
+      ${scheduledIds.length ? `<div class="student-picker">${scheduledIds.map(idValue => { const student = state.students.find(item => item.id === idValue); return student ? `<button class="student-button ${selectedStudents.has(idValue) ? "selected" : ""}" data-action="pickCalendarStudent" data-id="${idValue}">${escapeHtml(student.name)}<span>예정 수업</span></button>` : ""; }).join("")}</div>` : `<div class="muted small">${dayPeriods.length ? "이 교시에 예정된 학생이 없습니다." : "예정된 학생이 없습니다."} 아래에서 다른 학생을 검색하세요.</div>`}
       <input data-action="searchCalendarStudent" value="${escapeHtml(query)}" placeholder="당일 수업이 아닌 학생도 이름·아이디로 검색" />
       ${searchedStudents.length ? `<div class="student-picker">${searchedStudents.map(student => `<button class="student-button ${selectedStudents.has(student.id) ? "selected" : ""}" data-action="pickCalendarStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${scheduledIds.includes(student.id) ? "예정 학생" : "추가 학생"}</span></button>`).join("")}</div>` : ""}
       <div class="form-actions"><button data-action="clearSelection" ${selectedStudents.size ? "" : "disabled"}>선택 해제</button><button class="primary" data-action="openCalendarRecord" ${selectedStudents.size ? "" : "disabled"}>선택 학생 함께 기록</button></div>
@@ -1254,6 +1262,15 @@ function materialPlanRowHtml(plan = {}, index) {
   </div>`;
 }
 
+// 담당 선생님을 여러 명 배정할 수 있어야 하는데, 기존 <select multiple>은
+// Cmd/Ctrl을 누른 채 클릭해야 여러 명이 선택되는 걸 모르면 한 명만 골라지는
+// 것처럼 보여서 헷갈립니다. 그래서 학생 선택 버튼과 같은 방식(클릭해서 토글)
+// 으로 바꿨습니다. 버튼 목록 바로 다음에 숨김 input(JSON 배열)을 형제로 두고,
+// toggleFormTeacher 액션이 그 형제 input을 직접 찾아 갱신합니다.
+function teacherPickerHtml(selectedIds, teachers) {
+  return `<div class="student-picker" data-teacher-picker>${teachers.map(t => `<button type="button" class="student-button ${selectedIds.includes(t.id) ? "selected" : ""}" data-action="toggleFormTeacher" data-id="${t.id}">${escapeHtml(t.name)}</button>`).join("")}</div><input type="hidden" name="teacherIds" value="${escapeHtml(JSON.stringify(selectedIds))}" />`;
+}
+
 function renderStudentForm(student = null) {
   const slots = student ? toList(state.schedules).filter(item => item.studentId === student.id).map(item => ({ day: item.day, period: item.period })) : toList(modal.scheduleSlots);
   const existingSchedules = student ? toList(state.schedules).filter(item => item.studentId === student.id) : [];
@@ -1300,7 +1317,7 @@ function renderStudentForm(student = null) {
       <section class="panel stack"><div><strong>정규 수업 시간표</strong><div class="muted small">학생 등록과 동시에 요일과 교시를 선택합니다.</div></div>
         <div class="weekly-period-grid">${DAYS.map(day => `<div class="day-column"><div class="day-title">${day}</div>${periodOptions().map(period => `<button type="button" class="${slots.some(slot => slot.day === day && slot.period === period) ? "selected" : ""}" data-action="pickStudentFormSlot" data-day="${day}" data-period-name="${escapeHtml(period)}">${periodTimeLabel(period)}</button>`).join("")}</div>`).join("")}</div>
         <input type="hidden" name="slots" value="${escapeHtml(JSON.stringify(slots))}" />
-        <label>담당 선생님 <select name="teacherIds" multiple size="4">${toList(state.teachers).filter(t => t.active).map(t => `<option value="${t.id}" ${teacherIds.includes(t.id) ? "selected" : ""}>${escapeHtml(t.name)}</option>`).join("")}</select></label>
+        <label>담당 선생님 <span class="muted small">여러 명 클릭해서 선택</span>${teacherPickerHtml(teacherIds, toList(state.teachers).filter(t => t.active))}</label>
       </section>
       <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">${student ? "저장" : "등록"}</button></div>
     </form>
@@ -1490,9 +1507,7 @@ function renderScheduleForm() {
       </label>
       <label>수업 구분 <select name="lessonType">${LESSON_TYPES.map(v => `<option>${v}</option>`).join("")}</select></label>
       <label>담당 선생님 복수 선택
-        <select name="teacherIds" multiple size="5">
-          ${toList(state.teachers).filter(t => t.active && ["teacher", "admin", "deputy"].includes(t.role)).map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("")}
-        </select>
+        ${teacherPickerHtml([], toList(state.teachers).filter(t => t.active && ["teacher", "admin", "deputy"].includes(t.role)))}
       </label>
       <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">배정</button></div>
     </form>
@@ -1532,9 +1547,7 @@ function renderEditScheduleForm(schedule = {}) {
       </label>
       <label>수업 구분 <select name="lessonType">${LESSON_TYPES.map(v => `<option ${v === (schedule.lessonType || "정규") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
       <label>담당 선생님 복수 선택
-        <select name="teacherIds" multiple size="5">
-          ${toList(state.teachers).filter(t => t.active && ["teacher", "admin", "deputy"].includes(t.role)).map(t => `<option value="${t.id}" ${toList(schedule.teacherIds).includes(t.id) ? "selected" : ""}>${escapeHtml(t.name)}</option>`).join("")}
-        </select>
+        ${teacherPickerHtml(toList(schedule.teacherIds), toList(state.teachers).filter(t => t.active && ["teacher", "admin", "deputy"].includes(t.role)))}
       </label>
       <div class="form-actions">
         <button type="button" data-action="closeModal">취소</button>
@@ -1639,6 +1652,19 @@ function handleNonRenderingAction(button) {
 
   if (action === "applyAiSuggestion") {
     applyAiSuggestion(button);
+    return true;
+  }
+
+  if (action === "toggleFormTeacher") {
+    const picker = button.closest("[data-teacher-picker]");
+    const hidden = picker?.nextElementSibling;
+    if (!hidden || hidden.name !== "teacherIds") return true;
+    let ids = [];
+    try { ids = JSON.parse(hidden.value || "[]"); } catch { ids = []; }
+    const id = button.dataset.id;
+    ids = ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id];
+    hidden.value = JSON.stringify(ids);
+    button.classList.toggle("selected");
     return true;
   }
 
@@ -2025,13 +2051,22 @@ async function handleAction(event) {
     if (canTeacher()) selectedStudents.clear();
     modal = { type: "calendarDay", date: event.currentTarget.dataset.date, studentId: event.currentTarget.dataset.studentId || "", query: "" };
   }
+  if (action === "pickCalendarPeriod") {
+    modal.calendarPeriod = event.currentTarget.dataset.period;
+  }
   if (action === "pickCalendarStudent") {
     selectedStudents.has(idValue) ? selectedStudents.delete(idValue) : selectedStudents.add(idValue);
   }
   if (action === "selectCalendarScheduled") {
     String(event.currentTarget.dataset.ids || "").split(",").filter(Boolean).forEach(studentId => selectedStudents.add(studentId));
   }
-  if (action === "openCalendarRecord" && selectedStudents.size) modal = { type: "bulkRecord", lessonDate: modal.date };
+  if (action === "openCalendarRecord" && selectedStudents.size) {
+    // 지난 날짜의 학생을 골라 기록을 시작할 때는, 그 날짜에서 고른 교시를
+    // 그대로 기록에 반영해야 합니다(안 그러면 다른 화면에서 마지막으로 보고
+    // 있던 교시가 엉뚱하게 저장됨).
+    if (modal.calendarPeriod) selectedPeriod = modal.calendarPeriod;
+    modal = { type: "bulkRecord", lessonDate: modal.date };
+  }
   if (action === "editSchedule") modal = { type: "editScheduleForm", scheduleId: idValue };
   if (action === "pickScheduleDay") modal.scheduleDay = event.currentTarget.dataset.value;
   if (action === "pickSchedulePeriod") modal.schedulePeriod = event.currentTarget.dataset.value;
@@ -2298,10 +2333,16 @@ async function saveRecord(mode, data) {
   await loadAllData();
 }
 
+// teacherIds는 이제 <select multiple>이 아니라 클릭형 버튼 + 숨김 input(JSON
+// 배열)이라(teacherPickerHtml 참고), selectedOptions 대신 이렇게 읽습니다.
+function readTeacherIds(form) {
+  try { return JSON.parse(form.elements.teacherIds?.value || "[]"); } catch { return []; }
+}
+
 function readStudentScheduleForm(form) {
   let slots = [];
   try { slots = JSON.parse(new FormData(form).get("slots") || "[]"); } catch { slots = []; }
-  const teacherIds = Array.from(form.elements.teacherIds.selectedOptions).map(option => option.value);
+  const teacherIds = readTeacherIds(form);
   if (slots.length && !teacherIds.length) {
     showMessage("시간표를 선택했다면 담당 선생님도 선택해주세요.");
     return null;
@@ -2533,7 +2574,7 @@ async function updatePeriod(data) {
 
 async function addSchedule(form) {
   const fd = new FormData(form);
-  const teacherIds = Array.from(form.elements.teacherIds.selectedOptions).map(o => o.value);
+  const teacherIds = readTeacherIds(form);
   if (!teacherIds.length) {
     showMessage("담당 강사를 한 명 이상 선택해주세요.");
     return false;
@@ -2574,7 +2615,7 @@ async function updateSchedule(form) {
   const fd = new FormData(form);
   const schedule = toList(state.schedules).find(item => item.id === fd.get("id"));
   if (!schedule) return false;
-  const teacherIds = Array.from(form.elements.teacherIds.selectedOptions).map(option => option.value);
+  const teacherIds = readTeacherIds(form);
   if (!teacherIds.length) {
     showMessage("담당 강사를 한 명 이상 선택해주세요.");
     return false;
