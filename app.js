@@ -51,6 +51,21 @@ const KOREAN_HOLIDAYS = {
 };
 
 const toList = (value) => Array.isArray(value) ? value : [];
+
+// 값 목록 중 가장 많이 나온 값을 돌려줍니다(동률이면 먼저 나온 값). 빈 값(""/null/undefined)도
+// 하나의 값으로 취급합니다 — 이어쓰기 기능에서 "학생들이 이미 저장해둔 값 중 다수결로 공통
+// 기본값을 고르는 데" 씁니다.
+function modeValue(values) {
+  const counts = new Map();
+  let best, bestCount = 0;
+  for (const raw of values) {
+    const key = raw ?? "";
+    const count = (counts.get(key) || 0) + 1;
+    counts.set(key, count);
+    if (count > bestCount) { bestCount = count; best = raw; }
+  }
+  return best;
+}
 const todayIso = () => {
   const now = new Date();
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
@@ -1134,8 +1149,23 @@ function renderRecordForm(mode, record = {}) {
   }
   const resuming = existingByStudent.size > 0;
   if (resuming) {
-    const sample = studentIds.map(id => existingByStudent.get(id)).find(Boolean);
-    if (sample) record = sample;
+    const existingRecords = [...existingByStudent.values()];
+    const sample = existingRecords[0];
+    // 항목(수업 내용/과제/출석 등)별로 학생들이 이미 저장해둔 값 중 가장 많이
+    // 겹치는 값을 공통 기본값으로 씁니다(그냥 첫 번째 학생 값을 쓰면, 그 학생만
+    // 유독 다르게 개별 기록해둔 경우 그 소수 값이 공통값으로 잘못 뽑힙니다).
+    // 이렇게 하면 아래 renderIndividualRecordFields에서 "이 공통값과 실제로
+    // 다른 학생만" 개별 수정된 것으로 표시하고, 나머지는 공통 필드를 고칠 때
+    // 계속 함께 업데이트됩니다.
+    const pick = (field) => modeValue(existingRecords.map(r => r[field]));
+    record = {
+      lessonDate: sample.lessonDate, period: sample.period, lessonType: sample.lessonType,
+      attendance: pick("attendance"), homework: pick("homework"), focus: pick("focus"),
+      material: pick("material"), unit: pick("unit"),
+      content: pick("content"), assignment: pick("assignment"),
+      parentMessage: pick("parentMessage"), studentMessage: pick("studentMessage"),
+      keywords: pick("keywords"), testName: pick("testName"), nextPlan: pick("nextPlan")
+    };
   }
   const selectedStudentData = studentIds.map(studentId => toList(state.students).find(student => student.id === studentId)).filter(Boolean);
   const selectedPlans = selectedStudentData.flatMap(student => toList(student.studyPlans));
@@ -1236,27 +1266,31 @@ function renderIndividualRecordFields(studentIds, record = {}, existingByStudent
       </div>
       ${studentIds.map(studentId => {
         // 이미 이 학생 몫으로 저장된 기록이 있으면(위 renderRecordForm의 이어쓰기
-        // 로직) 공통값이 아니라 그 학생 본인의 값을 기본으로 보여줍니다. 그리고
-        // data-dirty="true"를 미리 붙여서, 나중에 공통 필드를 고쳐도 이 학생의
-        // 개별 값이 조용히 덮어써지지 않게 합니다(이미 다른 학생과 다른 내용이니까).
+        // 로직) 공통값이 아니라 그 학생 본인의 값을 기본으로 보여줍니다. 다만 "개별
+        // 수정"으로 취급해서 공통 필드와 연동을 끊는 건 실제로 공통값과 다른
+        // 항목뿐입니다 — 값이 같은 항목은 계속 공통 필드를 고치면 같이 업데이트되어야
+        // 하니까요(예: 개별로 과제수행도만 바꾼 학생은, 수업 내용은 계속 공통 필드를
+        // 따라가야 함).
         const own = existingByStudent.get(studentId) || record;
-        const dirty = existingByStudent.has(studentId) ? ` data-dirty="true"` : "";
+        const isDirty = (field) => existingByStudent.has(studentId) && String(own[field] ?? "") !== String(record[field] ?? "");
+        const dirtyAttr = (field) => isDirty(field) ? ` data-dirty="true"` : "";
+        const anyDirty = ["attendance", "homework", "focus", "content", "assignment", "parentMessage", "studentMessage", "keywords", "testName", "nextPlan"].some(isDirty);
         return `
-        <details class="student-detail">
-          <summary>${escapeHtml(studentName(studentId))}</summary>
+        <details class="student-detail"${anyDirty ? " open" : ""}>
+          <summary>${escapeHtml(studentName(studentId))}${anyDirty ? ` <span class="badge warn">개별 기록 있음</span>` : ""}</summary>
           <div class="stack">
             <div class="grid three">
-              <label>출석 <select name="attendance_${studentId}" data-individual-field="attendance" data-student-id="${studentId}"${dirty}>${ATTENDANCE.map(v => `<option ${v === normalizeAttendance(own.attendance || "정시출석") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
-              <label>과제수행도 <select name="homework_${studentId}" data-individual-field="homework" data-student-id="${studentId}"${dirty}>${HOMEWORK.map(v => `<option ${v === normalizeHomework(own.homework || "완벽") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
-              <label>수업집중도 <select name="focus_${studentId}" data-individual-field="focus" data-student-id="${studentId}"${dirty}><option value="">선택 안 함</option>${FOCUS_LEVELS.map(v => `<option ${v === own.focus ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>출석 <select name="attendance_${studentId}" data-individual-field="attendance" data-student-id="${studentId}"${dirtyAttr("attendance")}>${ATTENDANCE.map(v => `<option ${v === normalizeAttendance(own.attendance || "정시출석") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>과제수행도 <select name="homework_${studentId}" data-individual-field="homework" data-student-id="${studentId}"${dirtyAttr("homework")}>${HOMEWORK.map(v => `<option ${v === normalizeHomework(own.homework || "완벽") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>수업집중도 <select name="focus_${studentId}" data-individual-field="focus" data-student-id="${studentId}"${dirtyAttr("focus")}><option value="">선택 안 함</option>${FOCUS_LEVELS.map(v => `<option ${v === own.focus ? "selected" : ""}>${v}</option>`).join("")}</select></label>
             </div>
-            <label>수업 내용 <textarea name="content_${studentId}" data-individual-field="content" data-student-id="${studentId}"${dirty}>${escapeHtml(own.content || "")}</textarea></label>
-            <label>오늘의 과제 <textarea name="assignment_${studentId}" data-individual-field="assignment" data-student-id="${studentId}"${dirty}>${escapeHtml(own.assignment || "")}</textarea></label>
-            <label>학부모님께 드리는 글 <textarea name="parentMessage_${studentId}" data-individual-field="parentMessage" data-student-id="${studentId}"${dirty}>${escapeHtml(own.parentMessage || "")}</textarea></label>
-            <label>학생에게 보내는 글 <textarea name="studentMessage_${studentId}" data-individual-field="studentMessage" data-student-id="${studentId}"${dirty}>${escapeHtml(own.studentMessage || "")}</textarea></label>
-            <label>리마인드 키워드 <input name="keywords_${studentId}" data-individual-field="keywords" data-student-id="${studentId}"${dirty} value="${escapeHtml(own.keywords || "")}" /></label>
-            <label>테스트 <input name="testName_${studentId}" data-individual-field="testName" data-student-id="${studentId}"${dirty} value="${escapeHtml([own.testName, own.testScore].filter(Boolean).join(" "))}" /></label>
-            <label>다음 수업 계획 <input name="nextPlan_${studentId}" data-individual-field="nextPlan" data-student-id="${studentId}"${dirty} value="${escapeHtml(own.nextPlan || "")}" /></label>
+            <label>수업 내용 <textarea name="content_${studentId}" data-individual-field="content" data-student-id="${studentId}"${dirtyAttr("content")}>${escapeHtml(own.content || "")}</textarea></label>
+            <label>오늘의 과제 <textarea name="assignment_${studentId}" data-individual-field="assignment" data-student-id="${studentId}"${dirtyAttr("assignment")}>${escapeHtml(own.assignment || "")}</textarea></label>
+            <label>학부모님께 드리는 글 <textarea name="parentMessage_${studentId}" data-individual-field="parentMessage" data-student-id="${studentId}"${dirtyAttr("parentMessage")}>${escapeHtml(own.parentMessage || "")}</textarea></label>
+            <label>학생에게 보내는 글 <textarea name="studentMessage_${studentId}" data-individual-field="studentMessage" data-student-id="${studentId}"${dirtyAttr("studentMessage")}>${escapeHtml(own.studentMessage || "")}</textarea></label>
+            <label>리마인드 키워드 <input name="keywords_${studentId}" data-individual-field="keywords" data-student-id="${studentId}"${dirtyAttr("keywords")} value="${escapeHtml(own.keywords || "")}" /></label>
+            <label>테스트 <input name="testName_${studentId}" data-individual-field="testName" data-student-id="${studentId}"${dirtyAttr("testName")} value="${escapeHtml([own.testName, own.testScore].filter(Boolean).join(" "))}" /></label>
+            <label>다음 수업 계획 <input name="nextPlan_${studentId}" data-individual-field="nextPlan" data-student-id="${studentId}"${dirtyAttr("nextPlan")} value="${escapeHtml(own.nextPlan || "")}" /></label>
           </div>
         </details>
       `;
