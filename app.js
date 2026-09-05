@@ -38,6 +38,10 @@ const DEFAULT_UNITS = [
 ];
 const GRADES = ["초1", "초2", "초3", "초4", "초5", "초6", "중1", "중2", "중3", "고1", "고2", "고3"];
 const TERMS = ["1학기", "2학기"];
+// 재원: 정상적으로 다니는 중. 휴원: 일시적으로 쉬는 중(로그인은 막히지만 곧 돌아올 예정).
+// 퇴원: 완전히 그만둠. 셋 다 학생 행과 학습기록은 그대로 남아있고, 나중에 다시
+// "재원"으로 바꾸면(재등록) 기존 기록이 그대로 이어집니다.
+const STUDENT_STATUSES = ["재원", "휴원", "퇴원"];
 const KOREAN_HOLIDAYS = {
   "2026-01-01": "신정",
   "2026-02-16": "설날 연휴", "2026-02-17": "설날", "2026-02-18": "설날 연휴",
@@ -84,11 +88,15 @@ let searchRenderTimer = null;
 let listenersReady = false;
 let studentViewDate = todayIso();
 let calendarMonth = todayIso().slice(0, 7);
+// 형제/자매가 같은 계정으로 로그인해도 서로의 알림장을 볼 수 있게 하는
+// "지금 보고 있는 학생" 상태입니다. null이면 로그인한 본인 자신을 봅니다.
+let activeStudentId = null;
 // 관리자 화면 "학생" 표 검색/필터 상태. 모달이 아니라 항상 떠 있는 표라서
 // modal 객체가 아니라 이렇게 별도 전역 변수로 둡니다.
 let adminStudentQuery = "";
 let adminStudentGrade = "";
 let adminStudentSchool = "";
+let adminStudentStatus = "";
 let syncStatus = "불러오는 중";
 
 window.addEventListener("error", (event) => {
@@ -179,6 +187,8 @@ async function loadAllData() {
       schoolName: row.school_name || "", studentPhone: row.student_phone || "", parentPhone: row.parent_phone || "",
       parentName: row.parent_name || "", parentRelation: row.parent_relation || "",
       loginId: profile.login_id || "", studyPlans: toList(row.study_plans),
+      familyId: row.family_id || "",
+      status: row.status || "재원",
       active: profile.active !== false
     };
   }).sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -243,6 +253,23 @@ function teacherName(teacherId) {
 
 function studentName(studentId) {
   return toList(state.students).find(s => s.id === studentId)?.name || "알 수 없음";
+}
+
+// 학생 화면에서 "지금 보고 있는 학생"의 id. 형제/자매를 전환하지 않았으면
+// 로그인한 본인(session.id)입니다.
+function currentStudentId() {
+  return activeStudentId || session.id;
+}
+
+// 로그인한 학생과 같은 family_id를 가진 형제/자매 목록(본인 포함, 이름순).
+// family_id가 없으면 본인만 담긴 배열을 돌려줍니다.
+function familySiblings() {
+  const me = toList(state.students).find(s => s.id === session.id);
+  if (!me) return [];
+  if (!me.familyId) return [me];
+  return toList(state.students)
+    .filter(s => s.familyId === me.familyId)
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
 }
 
 function currentUserName() {
@@ -383,6 +410,7 @@ async function establishSession(userId) {
   };
   route = profile.role === "student" ? "student" : (canAdmin() ? "admin" : "teacher");
   selectedPeriod = "1교시";
+  activeStudentId = null;
   return true;
 }
 
@@ -413,6 +441,7 @@ async function logout() {
   session = null;
   route = "home";
   selectedStudents.clear();
+  activeStudentId = null;
   modal = null;
   render();
 }
@@ -779,6 +808,7 @@ function renderStudentDetail() {
           <div><span class="muted small">학부모 휴대폰</span><div>${escapeHtml(student.parentPhone || "-")}</div></div>
           <div><span class="muted small">학부모 성함</span><div>${escapeHtml(student.parentName || "-")}</div></div>
           <div><span class="muted small">학부모 관계</span><div>${escapeHtml(student.parentRelation || "-")}</div></div>
+          <div><span class="muted small">형제/자매 연결</span><div>${student.familyId ? escapeHtml(toList(state.students).filter(s => s.familyId === student.familyId && s.id !== student.id).map(s => s.name).join(", ") || "-") : "-"}</div></div>
         </div>
       </section>
       <section class="panel stack">
@@ -798,6 +828,7 @@ function adminFilteredStudents() {
   return toList(state.students).filter(student => {
     if (adminStudentGrade && student.schoolYear !== adminStudentGrade) return false;
     if (adminStudentSchool && student.schoolName !== adminStudentSchool) return false;
+    if (adminStudentStatus && (student.status || "재원") !== adminStudentStatus) return false;
     if (query && !(`${student.name} ${student.loginId} ${student.parentPhone}`).includes(query)) return false;
     return true;
   });
@@ -819,6 +850,10 @@ function renderAdminStudentFilters() {
         <option value="">학교 전체</option>
         ${schools.map(sc => `<option value="${escapeHtml(sc)}" ${sc === adminStudentSchool ? "selected" : ""}>${escapeHtml(sc)}</option>`).join("")}
       </select>
+      <select data-action="filterAdminStudentStatus">
+        <option value="">상태 전체</option>
+        ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === adminStudentStatus ? "selected" : ""}>${v}</option>`).join("")}
+      </select>
     </div>
   `;
 }
@@ -833,7 +868,7 @@ function renderAdmin() {
         <div class="between">
           <div>
             <h2 class="section-title">전체 관리</h2>
-            <div class="muted small">관리자와 부원장은 모든 등록, 수정, 숨김, 복구 권한을 가집니다.</div>
+            <div class="muted small">관리자와 부원장은 모든 등록, 수정, 재원/휴원/퇴원 상태 변경 권한을 가집니다.</div>
           </div>
           <div class="toolbar">
             <button class="primary" data-action="openStudentForm">학생 등록</button>
@@ -861,14 +896,16 @@ function renderAdmin() {
               <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
               <tbody>${adminFilteredStudents().map(s => `
                 <tr>
-                  <td><button type="button" class="link-button" data-action="viewStudent" data-id="${s.id}">${escapeHtml(s.name)}</button> ${!s.active ? `<span class="badge bad">숨김</span>` : ""}</td>
+                  <td><button type="button" class="link-button" data-action="viewStudent" data-id="${s.id}">${escapeHtml(s.name)}</button> ${s.status === "퇴원" ? `<span class="badge bad">퇴원</span>` : s.status === "휴원" ? `<span class="badge warn">휴원</span>` : ""}</td>
                   <td>${escapeHtml(s.schoolYear || "-")}</td>
                   <td>${escapeHtml(s.loginId)}</td>
                   <td>${escapeHtml(s.parentPhone || "-")}</td>
                   <td class="toolbar">
                     <button data-action="editStudent" data-id="${s.id}">수정</button>
                     <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
-                    <button data-action="toggleStudent" data-id="${s.id}">${s.active ? "숨김" : "복구"}</button>
+                    <select data-action="changeStudentStatus" data-id="${s.id}">
+                      ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === (s.status || "재원") ? "selected" : ""}>${v}</option>`).join("")}
+                    </select>
                   </td>
                 </tr>
               `).join("")}</tbody>
@@ -920,18 +957,34 @@ function roleName(role) {
   return { admin: "관리자", deputy: "부원장", teacher: "강사" }[role] || role;
 }
 
+function renderSiblingSwitcher() {
+  const siblings = familySiblings();
+  if (siblings.length < 2) return "";
+  const activeId = currentStudentId();
+  return `
+    <section class="panel stack">
+      <div class="muted small">한 계정에 연결된 형제/자매예요. 눌러서 서로의 알림장을 볼 수 있어요.</div>
+      <div class="tabs">
+        ${siblings.map(s => `<button class="${s.id === activeId ? "selected" : ""}" data-action="selectSiblingStudent" data-id="${s.id}">${escapeHtml(s.name)}${s.id === session.id ? " (본인)" : ""}</button>`).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function renderStudent() {
+  const viewedId = currentStudentId();
   const records = toList(state.records)
-    .filter(r => toList(r.studentIds).includes(session.id) && !r.hidden)
+    .filter(r => toList(r.studentIds).includes(viewedId) && !r.hidden)
     .sort((a, b) => b.lessonDate.localeCompare(a.lessonDate) || b.updatedAt.localeCompare(a.updatedAt));
   const dayRecords = records.filter(record => record.lessonDate === studentViewDate);
   return `
     <div class="grid">
       ${session.mustChangePassword ? renderPasswordPanel() : ""}
-      ${renderCalendar({ studentId: session.id, parentView: true })}
+      ${renderSiblingSwitcher()}
+      ${renderCalendar({ studentId: viewedId, parentView: true })}
       <section class="panel stack">
         <div class="between">
-          <h2 class="section-title">내 학습 알림장</h2>
+          <h2 class="section-title">${familySiblings().length > 1 ? `${escapeHtml(studentName(viewedId))} 학습 알림장` : "내 학습 알림장"}</h2>
           <button data-action="goToday">오늘</button>
         </div>
         <div class="date-nav">
@@ -951,8 +1004,8 @@ function renderStudentDailyNotices(records) {
   return `<div class="list">${records.map(record => `
     <div class="stack">
       <div class="between">
-        <strong>${isConfirmed(record, session.id) ? "확인한 알림장" : "확인이 필요한 알림장"}</strong>
-        <span class="badge ${isConfirmed(record, session.id) ? "good" : "warn"}">${isConfirmed(record, session.id) ? "확인 완료" : "확인 전"}</span>
+        <strong>${isConfirmed(record, currentStudentId()) ? "확인한 알림장" : "확인이 필요한 알림장"}</strong>
+        <span class="badge ${isConfirmed(record, currentStudentId()) ? "good" : "warn"}">${isConfirmed(record, currentStudentId()) ? "확인 완료" : "확인 전"}</span>
       </div>
       ${renderStudentRecordCard(record)}
       ${renderKeywordConfirm(record)}
@@ -963,7 +1016,7 @@ function renderStudentDailyNotices(records) {
 
 function renderAssignmentConfirm(record) {
   if (!String(record.assignment || "").trim()) return "";
-  const confirmation = getConfirmation(record.id, session.id);
+  const confirmation = getConfirmation(record.id, currentStudentId());
   const confirmed = confirmation?.assignmentConfirmed === true;
   return `
     <div class="assignment-confirm">
@@ -975,12 +1028,12 @@ function renderAssignmentConfirm(record) {
 function renderKeywordConfirm(record) {
   const keywords = keywordList(record);
   if (!keywords.length) {
-    const confirmed = isConfirmed(record, session.id);
+    const confirmed = isConfirmed(record, currentStudentId());
     return `<button class="primary" data-action="confirmRecord" data-id="${record.id}" ${confirmed ? "disabled" : ""}>${confirmed ? "확인 완료" : "확인 완료하기"}</button>`;
   }
-  const confirmation = getConfirmation(record.id, session.id);
+  const confirmation = getConfirmation(record.id, currentStudentId());
   const checked = toList(confirmation?.keywords);
-  const confirmed = isConfirmed(record, session.id);
+  const confirmed = isConfirmed(record, currentStudentId());
   const allChecked = keywords.every(keyword => checked.includes(keyword));
   return `
     <div class="stack">
@@ -1376,6 +1429,26 @@ function teacherPickerHtml(selectedIds, teachers) {
   return `<div class="student-picker" data-teacher-picker>${teachers.map(t => `<button type="button" class="student-button ${selectedIds.includes(t.id) ? "selected" : ""}" data-action="toggleFormTeacher" data-id="${t.id}">${escapeHtml(t.name)}</button>`).join("")}</div><input type="hidden" name="teacherIds" value="${escapeHtml(JSON.stringify(selectedIds))}" />`;
 }
 
+// 형제/자매로 묶을 다른 학생을 고르는 검색형 피커. 시간표 배정/교재 일괄 설정과
+// 같은 modal.pickerQuery/pickerGrade/pickerSchool을 그대로 재사용합니다(학생 등록/
+// 수정 폼이 열려 있는 동안은 다른 모달이 동시에 열릴 일이 없어서 안전합니다).
+function siblingPickerHtml(excludeStudentId) {
+  const selectedIds = toList(modal.siblingIds);
+  const candidates = toList(state.students).filter(s => s.active && s.id !== excludeStudentId);
+  const pickerStudents = studentPickerList(candidates);
+  return `
+    <section class="panel stack">
+      <div><strong>형제/자매 계정 연결</strong><div class="muted small">체크하면 하나의 로그인 아이디로도 형제/자매의 알림장을 함께 볼 수 있어요.</div></div>
+      ${renderStudentPickerFilters(candidates)}
+      <div class="muted small">${pickerStudents.length}명 표시 중 (전체 ${candidates.length}명)</div>
+      <div class="student-picker">
+        ${pickerStudents.map(s => `<button type="button" class="student-button ${selectedIds.includes(s.id) ? "selected" : ""}" data-action="toggleFormSibling" data-id="${s.id}">${escapeHtml(s.name)}<span>${escapeHtml(s.schoolYear || s.loginId)}</span></button>`).join("")}
+      </div>
+      <input type="hidden" name="siblingIds" value="${escapeHtml(JSON.stringify(selectedIds))}" />
+    </section>
+  `;
+}
+
 function renderStudentForm(student = null) {
   const slots = student ? toList(state.schedules).filter(item => item.studentId === student.id).map(item => ({ day: item.day, period: item.period })) : toList(modal.scheduleSlots);
   const existingSchedules = student ? toList(state.schedules).filter(item => item.studentId === student.id) : [];
@@ -1408,6 +1481,7 @@ function renderStudentForm(student = null) {
         </select></label>
         <label>학부모 성함 <span class="muted small">선택사항</span><input name="parentName" value="${escapeHtml(student?.parentName || "")}" /></label>
       </div>
+      ${siblingPickerHtml(student?.id || "")}
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리로 자동 생성 (그래도 겹치면 -2, -3...)" /></label>
       <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
       <section class="panel stack curriculum-setup">
@@ -1773,6 +1847,19 @@ function handleNonRenderingAction(button) {
     return true;
   }
 
+  // 형제/자매 선택은 modal.siblingIds에 저장해둬야, 검색/학년/학교 필터로
+  // 폼 전체가 다시 그려져도(renderStudentPickerFilters 쪽 액션들) 선택이 안 풀립니다.
+  if (action === "toggleFormSibling") {
+    const id = button.dataset.id;
+    const selected = new Set(toList(modal.siblingIds));
+    selected.has(id) ? selected.delete(id) : selected.add(id);
+    modal.siblingIds = Array.from(selected);
+    button.classList.toggle("selected");
+    const form = button.closest("form");
+    form.elements.siblingIds.value = JSON.stringify(modal.siblingIds);
+    return true;
+  }
+
   if (action === "addMaterialPlanRow") {
     const list = button.closest("form")?.querySelector("[data-material-plan-list]");
     if (list) list.insertAdjacentHTML("beforeend", materialPlanRowHtml({ grade: list.closest("form").elements.schoolYear?.value || "" }, materialRowSeq++));
@@ -2055,6 +2142,19 @@ function handleGlobalInput(event) {
     return;
   }
 
+  const adminStatus = event.target.closest("select[data-action='filterAdminStudentStatus']");
+  if (adminStatus) {
+    adminStudentStatus = adminStatus.value;
+    render();
+    return;
+  }
+
+  const statusSelect = event.target.closest("select[data-action='changeStudentStatus']");
+  if (statusSelect) {
+    changeStudentStatus(statusSelect.dataset.id, statusSelect.value);
+    return;
+  }
+
   const pickerSearch = event.target.closest("input[data-action='searchPickerStudent']");
   if (pickerSearch) {
     if (event.isComposing || event.inputType === "insertCompositionText") return;
@@ -2134,8 +2234,14 @@ async function handleAction(event) {
   if (action === "clearQuickSelection") selectedStudents.clear();
   if (action === "openQuickSelectedRecord" && selectedStudents.size) modal = { type: "bulkRecord", lessonDate: modal.lessonDate || todayIso() };
   if (action === "editRecord") modal = { type: "editRecord", recordId: idValue };
-  if (action === "openStudentForm") modal = { type: "studentForm", scheduleSlots: [] };
-  if (action === "editStudent") modal = { type: "editStudentForm", studentId: idValue, scheduleSlots: [] };
+  if (action === "openStudentForm") modal = { type: "studentForm", scheduleSlots: [], siblingIds: [] };
+  if (action === "editStudent") {
+    const target = toList(state.students).find(s => s.id === idValue);
+    const siblingIds = target?.familyId
+      ? toList(state.students).filter(s => s.familyId === target.familyId && s.id !== idValue).map(s => s.id)
+      : [];
+    modal = { type: "editStudentForm", studentId: idValue, scheduleSlots: [], siblingIds };
+  }
   if (action === "viewStudent") modal = { type: "studentDetail", studentId: idValue };
   if (action === "openTeacherForm") modal = { type: "teacherForm" };
   if (action === "editTeacher") modal = { type: "editTeacherForm", teacherId: idValue };
@@ -2195,14 +2301,14 @@ async function handleAction(event) {
   if (action === "confirmRecord") await confirmRecord(idValue);
   if (action === "confirmAssignment") await confirmAssignment(idValue);
   if (action === "toggleKeyword") await toggleKeyword(idValue, event.currentTarget.dataset.keyword);
+  if (action === "selectSiblingStudent") activeStudentId = idValue;
   if (action === "moveStudentDate") {
-    const records = toList(state.records).filter(r => toList(r.studentIds).includes(session.id) && !r.hidden);
+    const records = toList(state.records).filter(r => toList(r.studentIds).includes(currentStudentId()) && !r.hidden);
     studentViewDate = moveToRecordDate(records, Number(event.currentTarget.dataset.days || 0));
   }
   if (action === "goToday") studentViewDate = todayIso();
   if (action === "toggleRecordHidden") await toggleRecordHidden(idValue);
   if (action === "resetPassword") await resetPassword(idValue);
-  if (action === "toggleStudent") await toggleActive("students", idValue);
   if (action === "toggleTeacher") await toggleActive("teachers", idValue);
   if (action === "togglePeriod") await toggleActive("periods", idValue);
   if (action === "movePeriodUp") await movePeriod(idValue, -1);
@@ -2481,6 +2587,30 @@ function readStudentScheduleForm(form) {
   return { slots, teacherIds };
 }
 
+function readSiblingIds(form) {
+  try { return JSON.parse(new FormData(form).get("siblingIds") || "[]"); } catch { return []; }
+}
+
+// 형제/자매 계정을 서로 연결합니다. 이미 다른 형제와 묶여 있던 학생이 섞여
+// 있으면 새로 만들지 않고 그 family_id를 그대로 재사용해서 기존 연결을
+// 끊지 않습니다. 형제를 하나도 안 골랐으면 이 학생만 그룹에서 빠지고,
+// 나머지 형제들끼리의 연결은 그대로 둡니다.
+async function applyFamilySiblingLinks(studentId, siblingIds) {
+  const uniqueSiblingIds = [...new Set(toList(siblingIds))].filter(id => id && id !== studentId);
+  if (!uniqueSiblingIds.length) {
+    const { error } = await supabase.from("students").update({ family_id: null }).eq("id", studentId);
+    if (error) showMessage(`형제/자매 연결 해제 실패: ${error.message}`);
+    return;
+  }
+  const groupIds = [studentId, ...uniqueSiblingIds];
+  const existingFamilyId = groupIds
+    .map(id => toList(state.students).find(s => s.id === id)?.familyId)
+    .find(Boolean);
+  const familyId = existingFamilyId || crypto.randomUUID();
+  const { error } = await supabase.from("students").update({ family_id: familyId }).in("id", groupIds);
+  if (error) showMessage(`형제/자매 연결 실패: ${error.message}`);
+}
+
 function readStudentPlans(form) {
   const plans = [];
   let missingGrade = false;
@@ -2541,6 +2671,14 @@ async function addStudent(form, data) {
   const phones = validateStudentPhones(data);
   if (!phones) return false;
   const base = studentLoginIdBase(data.name.trim(), phones.parentPhone);
+  // 휴원/퇴원 처리된 학생과 이름·학부모전화가 같으면 새 계정을 또 만들지 않고
+  // 그 학생을 재원으로 되돌리도록 안내합니다. 그래야 예전 학습기록이 새
+  // 계정과 분리되지 않고 그대로 이어집니다.
+  const rejoiningStudent = toList(state.students).find(s => s.status !== "재원" && studentLoginIdBase(s.name, s.parentPhone) === base);
+  if (rejoiningStudent) {
+    showMessage(`이름·학부모전화가 같은 "${rejoiningStudent.status}" 상태 학생이 이미 있어요(${rejoiningStudent.name}). 새로 등록하면 예전 학습기록이 분리되니, 학생 목록에서 이 학생의 상태를 "재원"으로 바꿔서 재등록해주세요.`);
+    return false;
+  }
   let loginId = data.loginId?.trim() || base;
   let count = 2;
   while (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
@@ -2556,6 +2694,7 @@ async function addStudent(form, data) {
   });
   if (error) { showMessage(`학생 등록 실패: ${error}`); return false; }
   await syncStudentSchedules(created.id, scheduleData);
+  await applyFamilySiblingLinks(created.id, readSiblingIds(form));
   await loadAllData();
 }
 
@@ -2591,6 +2730,7 @@ async function updateStudent(form, data) {
     if (pwError) { showMessage(`비밀번호 변경 실패: ${pwError}`); return false; }
   }
   await syncStudentSchedules(student.id, scheduleData);
+  await applyFamilySiblingLinks(student.id, readSiblingIds(form));
   await loadAllData();
 }
 
@@ -2808,21 +2948,25 @@ async function changePassword(data) {
 async function confirmRecord(recordId) {
   const record = toList(state.records).find(r => r.id === recordId);
   if (!record) return;
+  const studentId = currentStudentId();
   const keywords = keywordList(record);
-  const existing = getConfirmation(recordId, session.id);
+  const existing = getConfirmation(recordId, studentId);
   const checked = toList(existing?.keywords);
   if (keywords.length && !keywords.every(keyword => checked.includes(keyword))) return;
   const { error } = await supabase.from("record_confirmations").upsert({
-    record_id: recordId, student_id: session.id, version: record.version,
+    record_id: recordId, student_id: studentId, version: record.version,
     confirmed_at: new Date().toISOString()
   }, { onConflict: "record_id,student_id" });
   if (error) { showMessage(`확인 처리 실패: ${error.message}`); return; }
   await loadAllData();
 }
 
+// 형제/자매 화면을 보고 있을 때는 그 형제/자매 몫으로 토글해야 하므로
+// 대상 학생 id를 함께 넘깁니다(기본은 로그인한 본인). 서버 쪽 RPC가
+// 본인이거나 같은 family_id의 형제/자매일 때만 허용합니다.
 async function toggleKeyword(recordId, keyword) {
   const { error } = await supabase.rpc("toggle_confirmation_keyword", {
-    p_record_id: recordId, p_keyword: keyword
+    p_record_id: recordId, p_keyword: keyword, p_student_id: currentStudentId()
   });
   if (error) { showMessage(`처리 실패: ${error.message}`); return; }
   await loadAllData();
@@ -2830,9 +2974,10 @@ async function toggleKeyword(recordId, keyword) {
 
 async function confirmAssignment(recordId) {
   const record = toList(state.records).find(r => r.id === recordId);
-  const existing = getConfirmation(recordId, session.id);
+  const studentId = currentStudentId();
+  const existing = getConfirmation(recordId, studentId);
   const { error } = await supabase.from("record_confirmations").upsert({
-    record_id: recordId, student_id: session.id,
+    record_id: recordId, student_id: studentId,
     version: record?.version ?? existing?.version ?? 0,
     assignment_confirmed: true,
     assignment_confirmed_at: new Date().toISOString()
@@ -2859,6 +3004,21 @@ async function resetPassword(userId) {
   if (error) { showMessage(`비밀번호 초기화 실패: ${error}`); return; }
   await loadAllData();
   showMessage("비밀번호가 1234로 초기화되었습니다.");
+}
+
+// 재원/휴원/퇴원 상태를 바꿉니다. 재원이 아니면 profiles.active도 꺼서
+// 로그인은 막지만, 학생 행과 학습기록은 그대로 남아있으니 나중에 다시
+// "재원"으로 되돌리면(재등록) 기존 기록이 그대로 이어집니다.
+async function changeStudentStatus(studentId, status) {
+  if (!canAdmin()) return;
+  if (!STUDENT_STATUSES.includes(status)) return;
+  const active = status === "재원";
+  const { error: profileError } = await supabase.from("profiles").update({ active }).eq("id", studentId);
+  if (profileError) { showMessage(`상태 변경 실패: ${profileError.message}`); return; }
+  const { error: studentError } = await supabase.from("students").update({ status }).eq("id", studentId);
+  if (studentError) { showMessage(`상태 변경 실패: ${studentError.message}`); return; }
+  await loadAllData();
+  render();
 }
 
 async function toggleActive(collection, itemId) {
