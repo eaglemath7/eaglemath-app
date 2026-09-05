@@ -82,7 +82,7 @@ const todayIso = () => {
 const todayDay = () => DAYS[(new Date().getDay() + 6) % 7];
 const app = document.getElementById("app");
 
-let state = { teachers: [], students: [], periods: [], schedules: [], materials: DEFAULT_MATERIALS, units: DEFAULT_UNITS, records: [], confirmations: [], academicEvents: [] };
+let state = { teachers: [], students: [], periods: [], schedules: [], materials: DEFAULT_MATERIALS, units: DEFAULT_UNITS, records: [], confirmations: [], comments: [], academicEvents: [] };
 let session = null;
 let route = "home";
 // 노트북/큰 화면에서 좌우 여백 없이 꽉 채워 보고 싶을 때 켜는 넓게 보기.
@@ -154,7 +154,7 @@ function showMessage(message) {
 // 클라이언트는 항상 "전체 조회"만 하면 됩니다.
 // =========================================================
 async function loadAllData() {
-  const [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes] = await Promise.all([
+  const [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes, commentsRes] = await Promise.all([
     supabase.from("profiles").select("*"),
     supabase.from("staff_directory").select("*"),
     supabase.from("students").select("*"),
@@ -164,10 +164,11 @@ async function loadAllData() {
     supabase.from("units").select("*"),
     supabase.from("academic_events").select("*"),
     supabase.from("lesson_records").select("*"),
-    supabase.from("record_confirmations").select("*")
+    supabase.from("record_confirmations").select("*"),
+    supabase.from("record_comments").select("*")
   ]);
 
-  const errors = [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes]
+  const errors = [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes, commentsRes]
     .map((res) => res.error).filter(Boolean);
   if (errors.length) {
     console.error("loadAllData errors", errors);
@@ -238,6 +239,14 @@ async function loadAllData() {
     keywords: toList(row.keywords), assignmentConfirmed: row.assignment_confirmed,
     assignmentConfirmedAt: row.assignment_confirmed_at, confirmedAt: row.confirmed_at
   }));
+
+  state.comments = toList(commentsRes.data).map((row) => ({
+    id: row.id, recordId: row.record_id, studentId: row.student_id,
+    authorId: row.author_id, authorRole: row.author_role, content: row.content,
+    teacherConfirmedAt: row.teacher_confirmed_at, teacherConfirmedBy: row.teacher_confirmed_by,
+    adminConfirmedAt: row.admin_confirmed_at, adminConfirmedBy: row.admin_confirmed_by,
+    createdAt: row.created_at
+  })).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 }
 
 // 관리자 전용 Edge Function 호출 (service_role 키가 필요한 계정 생성/비밀번호
@@ -696,6 +705,7 @@ function renderTeacher() {
     <div class="grid teacher-dashboard">
       ${session.mustChangePassword ? renderPasswordPanel() : ""}
       ${renderUnwrittenPanel(session.id)}
+      ${renderParentCommentInbox()}
       ${renderCalendar({ teacherId: session.id })}
       <section class="panel stack today-class-panel">
         <div class="between">
@@ -788,6 +798,52 @@ function renderUnwrittenPanel(teacherId = "") {
         </div>
       ` : `<div class="empty">오늘 배정된 학생은 모두 기록을 작성했어요.</div>`}
     </section>
+  `;
+}
+
+// 학부모/학생이 남긴 코멘트 중, 강사·원장 둘 다 확인하지 않은 것들.
+// 다른 독수리수학 관리프로그램의 "학부모 코멘트" 수신함을 참고했습니다.
+function unresolvedComments() {
+  return toList(state.comments)
+    .filter(c => c.authorRole === "student")
+    .filter(c => !(c.teacherConfirmedAt && c.adminConfirmedAt))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function renderParentCommentInbox() {
+  const unresolved = unresolvedComments();
+  return `
+    <section class="panel stack">
+      <div class="between">
+        <h2 class="section-title">💬 학부모 코멘트</h2>
+        ${unresolved.length ? `<span class="badge warn">확인 필요 ${unresolved.length}건</span>` : `<span class="badge good">모두 확인 완료</span>`}
+      </div>
+      <div class="muted small">강사가 확인하고 원장(관리자/부원장)도 확인해야 이 목록에서 사라집니다.</div>
+      ${unresolved.length ? `<div class="list">${unresolved.map(renderCommentInboxItem).join("")}</div>` : `<div class="empty">확인이 필요한 학부모 코멘트가 없습니다.</div>`}
+    </section>
+  `;
+}
+
+function renderCommentInboxItem(comment) {
+  const record = toList(state.records).find(r => r.id === comment.recordId);
+  return `
+    <div class="stack comment-inbox-item">
+      <div class="between">
+        <strong>${escapeHtml(studentName(comment.studentId))}</strong>
+        <span class="muted small">${record ? escapeHtml(record.lessonDate) : ""}</span>
+      </div>
+      <span>${escapeHtml(comment.content)}</span>
+      <div class="toolbar">
+        <span class="badge ${comment.teacherConfirmedAt ? "good" : "warn"}">강사 ${comment.teacherConfirmedAt ? "확인" : "미확인"}</span>
+        <span class="badge ${comment.adminConfirmedAt ? "good" : "warn"}">원장 ${comment.adminConfirmedAt ? "확인" : "미확인"}</span>
+        ${session.role === "teacher" && !comment.teacherConfirmedAt ? `<button data-action="confirmCommentTeacher" data-id="${comment.id}">강사 확인</button>` : ""}
+        ${canAdmin() && !comment.adminConfirmedAt ? `<button data-action="confirmCommentAdmin" data-id="${comment.id}">원장 확인</button>` : ""}
+      </div>
+      <form class="comment-form row" data-form="addComment" data-record-id="${comment.recordId}" data-student-id="${comment.studentId}">
+        <input name="content" placeholder="답글 남기기" />
+        <button type="submit">답글</button>
+      </form>
+    </div>
   `;
 }
 
@@ -979,6 +1035,7 @@ function renderAdmin() {
         </div>
       </section>
       ${renderUnwrittenPanel()}
+      ${renderParentCommentInbox()}
       ${renderCalendar()}
       <section class="grid two">
         <div class="panel">
@@ -1107,8 +1164,29 @@ function renderStudentDailyNotices(records) {
       ${renderStudentRecordCard(record)}
       ${renderKeywordConfirm(record)}
       ${renderAssignmentConfirm(record)}
+      ${renderCommentThread(record)}
     </div>
   `).join("")}</div>`;
+}
+
+// 학부모/학생이 학습기록마다 자유롭게 남기는 코멘트. 강사·원장 화면의
+// "학부모 코멘트" 수신함과 같은 데이터를 씁니다.
+function renderCommentThread(record) {
+  const comments = toList(state.comments).filter(c => c.recordId === record.id && c.studentId === currentStudentId());
+  return `
+    <div class="comment-thread stack">
+      ${comments.length ? comments.map(c => `
+        <div class="comment-item">
+          <strong>${c.authorRole === "student" ? "학부모" : escapeHtml(teacherName(c.authorId))}</strong>
+          <span>${escapeHtml(c.content)}</span>
+        </div>
+      `).join("") : ""}
+      <form class="comment-form row" data-form="addComment" data-record-id="${record.id}">
+        <input name="content" placeholder="선생님께 남길 말씀을 적어주세요" required />
+        <button class="primary" type="submit">보내기</button>
+      </form>
+    </div>
+  `;
 }
 
 function renderAssignmentConfirm(record) {
@@ -2404,6 +2482,8 @@ async function handleAction(event) {
   }
   if (action === "confirmRecord") await confirmRecord(idValue);
   if (action === "confirmAssignment") await confirmAssignment(idValue);
+  if (action === "confirmCommentTeacher") await confirmCommentTeacher(idValue);
+  if (action === "confirmCommentAdmin") await confirmCommentAdmin(idValue);
   if (action === "toggleKeyword") await toggleKeyword(idValue, event.currentTarget.dataset.keyword);
   if (action === "selectSiblingStudent") activeStudentId = idValue;
   if (action === "moveStudentDate") {
@@ -2582,6 +2662,7 @@ async function handleForm(form) {
   else if (form.dataset.form === "bulkMaterial") result = await applyBulkMaterial(data);
   else if (form.dataset.form === "academicEvent") result = await addAcademicEvent(data);
   else if (form.dataset.form === "changePassword") result = await changePassword(data);
+  else if (form.dataset.form === "addComment") result = await addComment(form, data);
   if (result === false) return;
   modal = null;
   render();
@@ -3088,6 +3169,44 @@ async function confirmAssignment(recordId) {
   }, { onConflict: "record_id,student_id" });
   if (error) { showMessage(`처리 실패: ${error.message}`); return; }
   await loadAllData();
+}
+
+// 학습기록에 학부모/학생 또는 강사·원장이 자유롭게 남기는 코멘트를 추가합니다.
+// 학생 화면에서 쓸 땐 studentId 없이 호출되어 currentStudentId()(본인 또는
+// 지금 보고 있는 형제/자매)로 채워지고, 강사/원장 수신함의 답글에서는
+// form의 data-student-id로 정확한 대상 학생을 지정합니다.
+async function addComment(form, data) {
+  const recordId = form.dataset.recordId;
+  const studentId = form.dataset.studentId || currentStudentId();
+  const content = (data.content || "").trim();
+  if (!recordId || !content) return false;
+  const { error } = await supabase.from("record_comments").insert({
+    record_id: recordId, student_id: studentId, author_id: session.id, author_role: session.role, content
+  });
+  if (error) { showMessage(`코멘트 등록 실패: ${error.message}`); return false; }
+  await loadAllData();
+}
+
+// 학부모 코멘트는 강사가 확인하고 원장(관리자/부원장)도 확인해야 "확인 완료"로
+// 바뀝니다 — 둘 중 하나만 확인해서는 수신함 알림이 꺼지지 않습니다.
+async function confirmCommentTeacher(commentId) {
+  if (session.role !== "teacher") return;
+  const { error } = await supabase.from("record_comments")
+    .update({ teacher_confirmed_at: new Date().toISOString(), teacher_confirmed_by: session.id })
+    .eq("id", commentId);
+  if (error) { showMessage(`처리 실패: ${error.message}`); return; }
+  await loadAllData();
+  render();
+}
+
+async function confirmCommentAdmin(commentId) {
+  if (!canAdmin()) return;
+  const { error } = await supabase.from("record_comments")
+    .update({ admin_confirmed_at: new Date().toISOString(), admin_confirmed_by: session.id })
+    .eq("id", commentId);
+  if (error) { showMessage(`처리 실패: ${error.message}`); return; }
+  await loadAllData();
+  render();
 }
 
 async function toggleRecordHidden(recordId) {

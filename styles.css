@@ -176,6 +176,21 @@ label {
   gap: 10px;
   flex-wrap: wrap;
 }
+.comment-thread {
+  gap: 6px;
+}
+.comment-item {
+  background: #f6f7fb;
+  border-radius: 10px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.comment-form input {
+  flex: 1;
+  min-width: 160px;
+}
 .between {
   display: flex;
   justify-content: space-between;
