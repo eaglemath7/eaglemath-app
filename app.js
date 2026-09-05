@@ -695,6 +695,7 @@ function renderTeacher() {
   return `
     <div class="grid teacher-dashboard">
       ${session.mustChangePassword ? renderPasswordPanel() : ""}
+      ${renderUnwrittenPanel(session.id)}
       ${renderCalendar({ teacherId: session.id })}
       <section class="panel stack today-class-panel">
         <div class="between">
@@ -743,6 +744,49 @@ function renderPasswordPanel() {
         <label>새 비밀번호 확인 <input name="confirm" type="password" inputmode="numeric" pattern="\\d{4}" maxlength="4" minlength="4" required /></label>
         <button class="primary" type="submit">변경</button>
       </form>
+    </section>
+  `;
+}
+
+// 오늘 요일 시간표에 배정된 학생 중, 오늘 날짜로 학습기록이 아직 하나도
+// 없는 학생 목록. teacherId를 주면 그 선생님 담당 수업만, 안 주면 전체.
+function todayUnwrittenStudents(teacherId = "") {
+  const day = todayDay();
+  const today = todayIso();
+  const scheduledIds = [...new Set(
+    toList(state.schedules)
+      .filter(s => s.day === day && (!teacherId || toList(s.teacherIds).includes(teacherId)))
+      .map(s => s.studentId)
+  )];
+  const writtenIds = new Set(
+    toList(state.records)
+      .filter(r => !r.hidden && r.lessonDate === today)
+      .flatMap(r => toList(r.studentIds))
+  );
+  return scheduledIds
+    .filter(id => !writtenIds.has(id))
+    .map(id => toList(state.students).find(s => s.id === id))
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+}
+
+// 다른 독수리수학 관리프로그램의 "수업일지 안 쓴 학생" 위젯 참고 — 오늘
+// 수업이 있는데 아직 기록을 안 쓴 학생을 한눈에 보여주고, 클릭 한 번으로
+// 바로 그 학생 기록 작성 화면으로 이동합니다.
+function renderUnwrittenPanel(teacherId = "") {
+  const unwritten = todayUnwrittenStudents(teacherId);
+  return `
+    <section class="panel stack">
+      <div class="between">
+        <h2 class="section-title">📝 오늘 수업일지</h2>
+        ${unwritten.length ? `<span class="badge warn">미작성 ${unwritten.length}명</span>` : `<span class="badge good">전부 작성 완료</span>`}
+      </div>
+      ${unwritten.length ? `
+        <div class="muted small">이름을 누르면 바로 그 학생 기록 작성 화면으로 이동합니다.</div>
+        <div class="student-picker">
+          ${unwritten.map(student => `<button type="button" class="student-button" data-action="pickUnwrittenStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${escapeHtml(student.loginId)}</span></button>`).join("")}
+        </div>
+      ` : `<div class="empty">오늘 배정된 학생은 모두 기록을 작성했어요.</div>`}
     </section>
   `;
 }
@@ -934,6 +978,7 @@ function renderAdmin() {
           </div>
         </div>
       </section>
+      ${renderUnwrittenPanel()}
       ${renderCalendar()}
       <section class="grid two">
         <div class="panel">
@@ -2287,6 +2332,11 @@ async function handleAction(event) {
   }
   if (action === "clearQuickSelection") selectedStudents.clear();
   if (action === "openQuickSelectedRecord" && selectedStudents.size) modal = { type: "bulkRecord", lessonDate: modal.lessonDate || todayIso() };
+  if (action === "pickUnwrittenStudent") {
+    selectedStudents.clear();
+    selectedStudents.add(idValue);
+    modal = { type: "bulkRecord", lessonDate: todayIso() };
+  }
   if (action === "editRecord") modal = { type: "editRecord", recordId: idValue };
   if (action === "openStudentForm") modal = { type: "studentForm", scheduleSlots: [], siblingIds: [] };
   if (action === "editStudent") {
