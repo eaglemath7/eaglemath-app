@@ -42,6 +42,10 @@ const TERMS = ["1학기", "2학기"];
 // 퇴원: 완전히 그만둠. 셋 다 학생 행과 학습기록은 그대로 남아있고, 나중에 다시
 // "재원"으로 바꾸면(재등록) 기존 기록이 그대로 이어집니다.
 const STUDENT_STATUSES = ["재원", "휴원", "퇴원"];
+// 삭제: 학생 표/탭 어디에도 안 보이는 휴지통 상태. 다른 세 상태와 마찬가지로
+// 행과 기록은 안 지워지고, 휴지통에서 "복구"를 누르면 재원으로 바로 돌아옵니다.
+// 진짜로 계정까지 완전히 지우고 싶을 때만 휴지통 안의 "완전 삭제"를 씁니다.
+const DELETED_STATUS = "삭제";
 const KOREAN_HOLIDAYS = {
   "2026-01-01": "신정",
   "2026-02-16": "설날 연휴", "2026-02-17": "설날", "2026-02-18": "설날 연휴",
@@ -101,6 +105,7 @@ let adminStudentQuery = "";
 let adminStudentGrade = "";
 let adminStudentSchool = "";
 let adminStudentStatus = "재원";
+let trashExpanded = false;
 let syncStatus = "불러오는 중";
 
 window.addEventListener("error", (event) => {
@@ -853,6 +858,35 @@ function renderAdminStudentStatusTabs() {
   `;
 }
 
+// 휴지통: 삭제 상태인 학생만 모아서 보여주고, 복구(재원으로) 또는 완전 삭제
+// (계정까지 진짜로 지움)를 고를 수 있게 합니다.
+function renderStudentTrash() {
+  const deleted = toList(state.students).filter(s => s.status === DELETED_STATUS);
+  if (!deleted.length) return "";
+  return `
+    <section class="panel stack">
+      <div class="between">
+        <strong>🗑️ 삭제한 학생 ${deleted.length}명 <span class="muted small">실수로 지웠다면 여기서 되살리세요</span></strong>
+        <button type="button" data-action="toggleStudentTrash">${trashExpanded ? "접기 ▲" : "펼치기 ▼"}</button>
+      </div>
+      ${trashExpanded ? `
+        <div class="muted small">학생을 삭제해도 기록은 지워지지 않습니다. 복구하면 학습기록·시간표·확인내역이 모두 그대로 돌아옵니다.</div>
+        <div class="list">
+          ${deleted.map(s => `
+            <div class="between">
+              <span>${escapeHtml(s.name)} <span class="muted small">${escapeHtml(s.loginId)}</span></span>
+              <span class="toolbar">
+                <button data-action="restoreStudent" data-id="${s.id}">복구</button>
+                <button class="danger" data-action="deleteStudent" data-id="${s.id}">완전 삭제</button>
+              </span>
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
 function renderAdminStudentFilters() {
   const schools = [...new Set(toList(state.students).map(student => student.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
   return `
@@ -904,6 +938,7 @@ function renderAdmin() {
       <section class="grid two">
         <div class="panel">
           <h2 class="section-title">학생</h2>
+          ${renderStudentTrash()}
           ${renderAdminStudentStatusTabs()}
           ${renderAdminStudentFilters()}
           <div class="muted small">${adminFilteredStudents().length}명 표시 중 (전체 ${toList(state.students).length}명)</div>
@@ -922,7 +957,7 @@ function renderAdmin() {
                     <select data-action="changeStudentStatus" data-id="${s.id}">
                       ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === (s.status || "재원") ? "selected" : ""}>${v}</option>`).join("")}
                     </select>
-                    <button class="danger" data-action="deleteStudent" data-id="${s.id}">삭제</button>
+                    <button class="danger" data-action="softDeleteStudent" data-id="${s.id}">삭제</button>
                   </td>
                 </tr>
               `).join("")}</tbody>
@@ -2224,6 +2259,9 @@ async function handleAction(event) {
     try { localStorage.setItem("eagle-wide-view", wideView ? "1" : "0"); } catch { /* ignore */ }
   }
   if (action === "filterAdminStudentStatusTab") adminStudentStatus = event.currentTarget.dataset.status;
+  if (action === "toggleStudentTrash") trashExpanded = !trashExpanded;
+  if (action === "softDeleteStudent") await softDeleteStudent(idValue);
+  if (action === "restoreStudent") await changeStudentStatus(idValue, "재원");
   if (action === "deleteStudent") await deleteStudentPermanently(idValue);
   if (action === "searchAdminStudentGo") {
     clearTimeout(searchRenderTimer);
@@ -3037,14 +3075,35 @@ async function changeStudentStatus(studentId, status) {
   render();
 }
 
-// 계정과 학습기록·시간표·확인내역까지 전부 영구 삭제합니다(되돌릴 수 없음).
-// 그만둔 학생의 기록만 안 보이게 하려면 삭제 대신 상태를 "퇴원"으로 바꾸세요.
+// 학생 표에서 "삭제"를 누르면 여기로 옵니다. 계정을 진짜로 지우지 않고 상태만
+// "삭제"로 바꿔서 목록/탭에서 안 보이게 합니다(휴지통으로 이동). 학습기록·
+// 시간표·확인내역은 그대로 남고, 휴지통에서 "복구"를 누르면 재원으로 바로
+// 돌아옵니다. 실수로 지웠을 때를 위한 안전장치입니다.
+async function softDeleteStudent(studentId) {
+  if (!canAdmin()) return;
+  const student = toList(state.students).find(s => s.id === studentId);
+  if (!student) return;
+  const confirmed = window.confirm(
+    `${student.name} 학생을 목록에서 삭제합니다.\n학습기록은 지워지지 않고, 관리 화면의 "삭제한 학생" 휴지통에서 언제든 복구할 수 있습니다.\n\n삭제할까요?`
+  );
+  if (!confirmed) return;
+  const { error: profileError } = await supabase.from("profiles").update({ active: false }).eq("id", studentId);
+  if (profileError) { showMessage(`삭제 실패: ${profileError.message}`); return; }
+  const { error: studentError } = await supabase.from("students").update({ status: DELETED_STATUS }).eq("id", studentId);
+  if (studentError) { showMessage(`삭제 실패: ${studentError.message}`); return; }
+  await loadAllData();
+  render();
+}
+
+// 휴지통 안의 "완전 삭제"에서만 호출됩니다. 계정과 학습기록·시간표·확인내역까지
+// 전부 영구 삭제합니다(되돌릴 수 없음) — 일반적인 경우엔 위의 softDeleteStudent
+// (휴지통행)만으로 충분하니, 이 함수는 정말 완전히 지우고 싶을 때만 쓰세요.
 async function deleteStudentPermanently(studentId) {
   if (!canAdmin()) return;
   const student = toList(state.students).find(s => s.id === studentId);
   if (!student) return;
   const confirmed = window.confirm(
-    `${student.name} 학생을 완전히 삭제합니다.\n학습기록·시간표·확인내역까지 전부 영구히 사라지고 되돌릴 수 없습니다.\n\n기록은 남기고 로그인만 막으려면 취소하고 "퇴원" 상태를 사용하세요.\n\n정말 삭제할까요?`
+    `${student.name} 학생을 휴지통에서 완전히 삭제합니다.\n학습기록·시간표·확인내역까지 전부 영구히 사라지고 되돌릴 수 없습니다.\n\n정말 완전히 삭제할까요?`
   );
   if (!confirmed) return;
   const { error } = await invokeAdmin("admin-delete-user", { userId: studentId });
