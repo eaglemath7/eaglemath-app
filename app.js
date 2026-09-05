@@ -987,6 +987,22 @@ function renderStudentTrash() {
   `;
 }
 
+// 이름만 입력해서 한 번에 등록하는 빠른 등록. 시간표·교재·형제 연결 등
+// 나머지 정보는 나중에 "수정"에서 채우면 됩니다. 다른 독수리수학
+// 관리프로그램의 한 줄짜리 "학생 추가" 입력창을 참고했습니다.
+function renderQuickStudentForm() {
+  return `
+    <form class="row" data-form="quickStudent">
+      <input name="name" placeholder="빠른 등록: 이름만 입력" required style="flex:1;min-width:120px" />
+      <select name="schoolYear">
+        <option value="">학년(선택)</option>
+        ${GRADES.map(g => `<option value="${g}">${g}</option>`).join("")}
+      </select>
+      <button class="blue" type="submit">빠른 등록</button>
+    </form>
+  `;
+}
+
 function renderAdminStudentFilters() {
   const schools = [...new Set(toList(state.students).map(student => student.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
   return `
@@ -1040,6 +1056,7 @@ function renderAdmin() {
       <section class="grid two">
         <div class="panel">
           <h2 class="section-title">학생</h2>
+          ${renderQuickStudentForm()}
           ${renderStudentTrash()}
           ${renderAdminStudentStatusTabs()}
           ${renderAdminStudentFilters()}
@@ -2663,6 +2680,7 @@ async function handleForm(form) {
   else if (form.dataset.form === "academicEvent") result = await addAcademicEvent(data);
   else if (form.dataset.form === "changePassword") result = await changePassword(data);
   else if (form.dataset.form === "addComment") result = await addComment(form, data);
+  else if (form.dataset.form === "quickStudent") result = await addStudentQuick(data);
   if (result === false) return;
   modal = null;
   render();
@@ -2846,6 +2864,24 @@ function validateStudentPhones(data) {
     return null;
   }
   return { parentPhone: parentPhoneRaw, studentPhone };
+}
+
+// 이름(+학년)만으로 바로 학생 계정을 만듭니다. 시간표/교재/형제 연결/연락처는
+// 비워두고, 나중에 "수정"에서 채우면 됩니다. 초기 비밀번호는 1234.
+async function addStudentQuick(data) {
+  const name = (data.name || "").trim();
+  if (!name) { showMessage("이름을 입력해주세요."); return false; }
+  const base = studentLoginIdBase(name, "");
+  let loginId = base;
+  let count = 2;
+  while (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
+    loginId = `${base}-${count++}`;
+  }
+  const { error } = await invokeAdmin("admin-create-user", {
+    role: "student", name, loginId, schoolYear: data.schoolYear?.trim() || "", studyPlans: []
+  });
+  if (error) { showMessage(`빠른 등록 실패: ${error}`); return false; }
+  await loadAllData();
 }
 
 async function addStudent(form, data) {
