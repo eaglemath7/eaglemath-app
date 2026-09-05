@@ -96,7 +96,7 @@ let activeStudentId = null;
 let adminStudentQuery = "";
 let adminStudentGrade = "";
 let adminStudentSchool = "";
-let adminStudentStatus = "";
+let adminStudentStatus = "재원";
 let syncStatus = "불러오는 중";
 
 window.addEventListener("error", (event) => {
@@ -834,6 +834,20 @@ function adminFilteredStudents() {
   });
 }
 
+// 재원/휴원/퇴원 탭. 그만둔 학생이 쌓여도 평소 학생 표에는 안 보이도록
+// 기본값은 재원이고(adminStudentStatus 초기값), 탭으로 눌러서 바꿉니다.
+function renderAdminStudentStatusTabs() {
+  const counts = STUDENT_STATUSES.reduce((acc, status) => {
+    acc[status] = toList(state.students).filter(student => (student.status || "재원") === status).length;
+    return acc;
+  }, {});
+  return `
+    <div class="tabs">
+      ${STUDENT_STATUSES.map(status => `<button class="${status === adminStudentStatus ? "selected" : ""}" data-action="filterAdminStudentStatusTab" data-status="${status}">${status} ${counts[status]}명</button>`).join("")}
+    </div>
+  `;
+}
+
 function renderAdminStudentFilters() {
   const schools = [...new Set(toList(state.students).map(student => student.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
   return `
@@ -849,10 +863,6 @@ function renderAdminStudentFilters() {
       <select data-action="filterAdminStudentSchool">
         <option value="">학교 전체</option>
         ${schools.map(sc => `<option value="${escapeHtml(sc)}" ${sc === adminStudentSchool ? "selected" : ""}>${escapeHtml(sc)}</option>`).join("")}
-      </select>
-      <select data-action="filterAdminStudentStatus">
-        <option value="">상태 전체</option>
-        ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === adminStudentStatus ? "selected" : ""}>${v}</option>`).join("")}
       </select>
     </div>
   `;
@@ -889,6 +899,7 @@ function renderAdmin() {
       <section class="grid two">
         <div class="panel">
           <h2 class="section-title">학생</h2>
+          ${renderAdminStudentStatusTabs()}
           ${renderAdminStudentFilters()}
           <div class="muted small">${adminFilteredStudents().length}명 표시 중 (전체 ${toList(state.students).length}명)</div>
           <div class="table-wrap">
@@ -906,6 +917,7 @@ function renderAdmin() {
                     <select data-action="changeStudentStatus" data-id="${s.id}">
                       ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === (s.status || "재원") ? "selected" : ""}>${v}</option>`).join("")}
                     </select>
+                    <button class="danger" data-action="deleteStudent" data-id="${s.id}">삭제</button>
                   </td>
                 </tr>
               `).join("")}</tbody>
@@ -2142,13 +2154,6 @@ function handleGlobalInput(event) {
     return;
   }
 
-  const adminStatus = event.target.closest("select[data-action='filterAdminStudentStatus']");
-  if (adminStatus) {
-    adminStudentStatus = adminStatus.value;
-    render();
-    return;
-  }
-
   const statusSelect = event.target.closest("select[data-action='changeStudentStatus']");
   if (statusSelect) {
     changeStudentStatus(statusSelect.dataset.id, statusSelect.value);
@@ -2209,6 +2214,8 @@ async function handleAction(event) {
     return;
   }
   if (action === "closeModal") modal = null;
+  if (action === "filterAdminStudentStatusTab") adminStudentStatus = event.currentTarget.dataset.status;
+  if (action === "deleteStudent") await deleteStudentPermanently(idValue);
   if (action === "searchAdminStudentGo") {
     clearTimeout(searchRenderTimer);
     const input = document.querySelector("input[data-action='searchAdminStudent']");
@@ -3017,6 +3024,22 @@ async function changeStudentStatus(studentId, status) {
   if (profileError) { showMessage(`상태 변경 실패: ${profileError.message}`); return; }
   const { error: studentError } = await supabase.from("students").update({ status }).eq("id", studentId);
   if (studentError) { showMessage(`상태 변경 실패: ${studentError.message}`); return; }
+  await loadAllData();
+  render();
+}
+
+// 계정과 학습기록·시간표·확인내역까지 전부 영구 삭제합니다(되돌릴 수 없음).
+// 그만둔 학생의 기록만 안 보이게 하려면 삭제 대신 상태를 "퇴원"으로 바꾸세요.
+async function deleteStudentPermanently(studentId) {
+  if (!canAdmin()) return;
+  const student = toList(state.students).find(s => s.id === studentId);
+  if (!student) return;
+  const confirmed = window.confirm(
+    `${student.name} 학생을 완전히 삭제합니다.\n학습기록·시간표·확인내역까지 전부 영구히 사라지고 되돌릴 수 없습니다.\n\n기록은 남기고 로그인만 막으려면 취소하고 "퇴원" 상태를 사용하세요.\n\n정말 삭제할까요?`
+  );
+  if (!confirmed) return;
+  const { error } = await invokeAdmin("admin-delete-user", { userId: studentId });
+  if (error) { showMessage(`삭제 실패: ${error}`); return; }
   await loadAllData();
   render();
 }
