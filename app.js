@@ -81,6 +81,10 @@ const app = document.getElementById("app");
 let state = { teachers: [], students: [], periods: [], schedules: [], materials: DEFAULT_MATERIALS, units: DEFAULT_UNITS, records: [], confirmations: [], academicEvents: [] };
 let session = null;
 let route = "home";
+// 노트북/큰 화면에서 좌우 여백 없이 꽉 채워 보고 싶을 때 켜는 넓게 보기.
+// 기기별로 다를 수 있어서 localStorage에만 저장(서버 동기화 안 함).
+let wideView = false;
+try { wideView = localStorage.getItem("eagle-wide-view") === "1"; } catch { wideView = false; }
 let selectedPeriod = "1교시";
 let selectedStudents = new Set();
 let modal = null;
@@ -456,7 +460,7 @@ function render() {
   app.innerHTML = `
     <div class="app-shell">
       ${renderTopbar()}
-      <main class="main">
+      <main class="main ${wideView ? "wide" : ""}">
         ${renderRoute()}
       </main>
       ${modal ? renderModal() : ""}
@@ -506,6 +510,7 @@ function renderTopbar() {
         ${canTeacher() ? `<button class="ghost" data-route="teacher">강사</button>` : ""}
         ${canAdmin() ? `<button class="ghost" data-route="admin">관리</button>` : ""}
         ${session.type === "student" ? `<button class="ghost" data-route="student">알림장</button>` : ""}
+        <button class="ghost" data-action="toggleWideView">${wideView ? "좁게 보기" : "넓게 보기"}</button>
         <button data-action="logout">나가기</button>
       </div>
     </header>
@@ -2214,6 +2219,10 @@ async function handleAction(event) {
     return;
   }
   if (action === "closeModal") modal = null;
+  if (action === "toggleWideView") {
+    wideView = !wideView;
+    try { localStorage.setItem("eagle-wide-view", wideView ? "1" : "0"); } catch { /* ignore */ }
+  }
   if (action === "filterAdminStudentStatusTab") adminStudentStatus = event.currentTarget.dataset.status;
   if (action === "deleteStudent") await deleteStudentPermanently(idValue);
   if (action === "searchAdminStudentGo") {

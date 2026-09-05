@@ -134,6 +134,9 @@ label {
   margin: 0 auto;
   padding: 18px clamp(12px, 3vw, 28px) 48px;
 }
+.main.wide {
+  width: 100%;
+}
 .login-page {
   min-height: 100vh;
   display: grid;
