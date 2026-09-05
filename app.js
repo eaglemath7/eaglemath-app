@@ -91,6 +91,7 @@ let wideView = false;
 try { wideView = localStorage.getItem("eagle-wide-view") === "1"; } catch { wideView = false; }
 let selectedPeriod = "1교시";
 let selectedStudents = new Set();
+let selectedDraftIds = new Set();
 let modal = null;
 let searchRenderTimer = null;
 let listenersReady = false;
@@ -231,7 +232,8 @@ async function loadAllData() {
     content: row.content || "", assignment: row.assignment || "", parentMessage: row.parent_message || "",
     studentMessage: row.student_message || "", keywords: row.keywords || "", testName: row.test_name || "", testScore: "",
     nextPlan: row.next_plan || "", createdBy: row.created_by, updatedBy: row.updated_by, version: row.version,
-    hidden: row.hidden, hiddenBy: row.hidden_by, hiddenAt: row.hidden_at, createdAt: row.created_at, updatedAt: row.updated_at
+    hidden: row.hidden, hiddenBy: row.hidden_by, hiddenAt: row.hidden_at, createdAt: row.created_at, updatedAt: row.updated_at,
+    isDraft: row.is_draft === true
   }));
 
   state.confirmations = toList(confirmationsRes.data).map((row) => ({
@@ -810,6 +812,46 @@ function unresolvedComments() {
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
+// 강사가 저장한 기록은 임시저장(초안) 상태로 시작해서 관리자/부원장이
+// 발행해야 학부모에게 보입니다. 여기서 한 건씩 또는 여러 건을 한꺼번에
+// 발행할 수 있습니다.
+function draftRecords() {
+  return toList(state.records)
+    .filter(r => r.isDraft && !r.hidden)
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+}
+
+function renderDraftRecordsPanel() {
+  if (!canAdmin()) return "";
+  const drafts = draftRecords();
+  return `
+    <section class="panel stack">
+      <div class="between">
+        <h2 class="section-title">🗂️ 임시저장 목록</h2>
+        ${drafts.length ? `<span class="badge warn">발행 대기 ${drafts.length}건</span>` : `<span class="badge good">발행 대기 없음</span>`}
+      </div>
+      ${drafts.length ? `
+        <div class="toolbar">
+          <button type="button" data-action="selectAllDrafts">전체 선택</button>
+          <button type="button" data-action="clearDraftSelection">선택 해제</button>
+          <button class="primary" type="button" data-action="publishSelectedDrafts" ${selectedDraftIds.size ? "" : "disabled"}>선택 ${selectedDraftIds.size}건 발행</button>
+        </div>
+        <div class="list">
+          ${drafts.map(record => `
+            <div class="between">
+              <label class="row">
+                <input type="checkbox" data-action="toggleDraftSelect" data-id="${record.id}" ${selectedDraftIds.has(record.id) ? "checked" : ""} />
+                <span>${escapeHtml(record.lessonDate)} · ${escapeHtml(toList(record.studentIds).map(studentName).join(", "))} · 작성: ${escapeHtml(teacherName(record.createdBy))}</span>
+              </label>
+              <button type="button" data-action="publishRecord" data-id="${record.id}">발행</button>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<div class="empty">발행 대기 중인 임시저장 기록이 없습니다.</div>`}
+    </section>
+  `;
+}
+
 function renderParentCommentInbox() {
   const unresolved = unresolvedComments();
   return `
@@ -1051,6 +1093,7 @@ function renderAdmin() {
         </div>
       </section>
       ${renderUnwrittenPanel()}
+      ${renderDraftRecordsPanel()}
       ${renderParentCommentInbox()}
       ${renderCalendar()}
       <section class="grid two">
@@ -1260,6 +1303,7 @@ function renderRecordCard(record, editable, adminMode = false) {
         <div class="row">
           <span class="badge">${escapeHtml(record.attendance)}</span>
           <span class="badge ${homeworkClass(record.homework)}">${escapeHtml(record.homework)}</span>
+          ${record.isDraft ? `<span class="badge warn">초안(미발행)</span>` : ""}
           ${record.hidden ? `<span class="badge bad">숨김</span>` : ""}
         </div>
       </div>
@@ -1278,6 +1322,7 @@ function renderRecordCard(record, editable, adminMode = false) {
         <div class="form-actions">
           <button data-action="editRecord" data-id="${record.id}">수정</button>
           ${adminMode ? `<button class="${record.hidden ? "" : "danger"}" data-action="toggleRecordHidden" data-id="${record.id}">${record.hidden ? "복구" : "숨김"}</button>` : ""}
+          ${adminMode && record.isDraft ? `<button class="primary" data-action="publishRecord" data-id="${record.id}">발행</button>` : ""}
         </div>
       ` : ""}
     </article>
@@ -1467,6 +1512,7 @@ function renderRecordForm(mode, record = {}) {
       ${mode !== "edit" && studentIds.length > 1 ? renderIndividualRecordFields(studentIds, record, existingByStudent) : ""}
       <datalist id="materials">${toList(state.materials).map(v => `<option value="${escapeHtml(v)}"></option>`).join("")}</datalist>
       <datalist id="units">${toList(state.units).map(v => `<option value="${escapeHtml(v)}"></option>`).join("")}</datalist>
+      ${!canAdmin() ? `<div class="muted small">저장하면 임시저장(초안) 상태가 되고, 원장님/부원장님이 발행해야 학부모님께 보입니다.</div>` : ""}
       <div class="form-actions">
         <button type="button" data-action="closeModal">취소</button>
         <button class="primary" type="submit">저장</button>
@@ -2252,6 +2298,14 @@ function handleGlobalInput(event) {
     phoneInput.value = formatPhone(phoneInput.value);
   }
 
+  const draftCheckbox = event.target.closest("input[data-action='toggleDraftSelect']");
+  if (draftCheckbox) {
+    const id = draftCheckbox.dataset.id;
+    draftCheckbox.checked ? selectedDraftIds.add(id) : selectedDraftIds.delete(id);
+    render();
+    return;
+  }
+
   const importFile = event.target.closest("input[data-action='loadBackupFile']");
   if (importFile) {
     importBackupFile(importFile.files?.[0]);
@@ -2509,6 +2563,10 @@ async function handleAction(event) {
   }
   if (action === "goToday") studentViewDate = todayIso();
   if (action === "toggleRecordHidden") await toggleRecordHidden(idValue);
+  if (action === "publishRecord") await publishRecords([idValue]);
+  if (action === "publishSelectedDrafts") await publishRecords(Array.from(selectedDraftIds));
+  if (action === "selectAllDrafts") selectedDraftIds = new Set(draftRecords().map(r => r.id));
+  if (action === "clearDraftSelection") selectedDraftIds.clear();
   if (action === "resetPassword") await resetPassword(idValue);
   if (action === "toggleTeacher") await toggleActive("teachers", idValue);
   if (action === "togglePeriod") await toggleActive("periods", idValue);
@@ -3255,6 +3313,17 @@ async function toggleRecordHidden(recordId) {
   }).eq("id", recordId);
   if (error) { showMessage(`처리 실패: ${error.message}`); return; }
   await loadAllData();
+}
+
+// 강사가 임시저장한 기록을 발행합니다(관리자/부원장만). 한 건 또는 여러 건을
+// 한꺼번에 넘길 수 있습니다(임시저장 목록의 "발행"/"선택 발행").
+async function publishRecords(recordIds) {
+  if (!canAdmin() || !recordIds.length) return;
+  const { error } = await supabase.from("lesson_records").update({ is_draft: false }).in("id", recordIds);
+  if (error) { showMessage(`발행 실패: ${error.message}`); return; }
+  selectedDraftIds.clear();
+  await loadAllData();
+  render();
 }
 
 async function resetPassword(userId) {
