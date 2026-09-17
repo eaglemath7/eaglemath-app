@@ -540,6 +540,7 @@ function renderLogin() {
 }
 
 function renderTopbar() {
+  const nav = (target, label) => `<button class="${route === target ? 'primary' : 'ghost'}" data-route="${target}" ${route === target ? 'aria-current="page"' : ''}>${label}</button>`;
   return `
     <header class="topbar">
       <div class="brand">
@@ -552,11 +553,14 @@ function renderTopbar() {
       <div class="row">
         <span class="badge">${escapeHtml(syncStatus)}</span>
         <span class="user-chip">${escapeHtml(currentUserName())}</span>
-        <button class="${route === "home" ? "primary" : "ghost"}" data-route="home" ${route === "home" ? 'aria-current="page"' : ""}>홈</button>
-        ${canTeacher() ? `<button class="ghost" data-route="academy_class">오늘 수업</button>` : ""}<button class="ghost" data-route="academy_inbox">과제·질문</button><button class="ghost" data-route="academy_growth">성장기록</button>${canTeacher()?'<button class="ghost" data-route="academy_comments">학부모 코멘트</button>':''}
-        ${canAdmin() ? `<button class="ghost" data-route="admin">관리</button>` : ""}
-        ${session.type === "student" ? `<button class="ghost" data-route="student">알림장</button>` : ""}
-        <button class="ghost" data-action="toggleWideView">${wideView ? "좁게 보기" : "넓게 보기"}</button>
+        ${nav('home','홈')}
+        ${canTeacher() ? nav('academy_class','오늘 수업') : ''}
+        ${canTeacher() && route === 'teacher' ? nav('teacher','강사 수업기록') : ''}
+        ${nav('academy_inbox','과제·질문')}${nav('academy_growth','성장기록')}
+        ${canTeacher() ? nav('academy_comments','학부모 코멘트') : ''}
+        ${canAdmin() ? nav('admin','관리') : ''}
+        ${session.type === 'student' ? nav('student','알림장') : ''}
+        <button class="${wideView ? 'selected' : 'ghost'}" data-action="toggleWideView" aria-pressed="${wideView}">${wideView ? '✓ 넓게 보기 켜짐' : '넓게 보기'}</button>
         <button data-action="logout">나가기</button>
       </div>
     </header>

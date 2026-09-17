@@ -896,3 +896,9 @@ th {
 .ac-history-entry { margin-top:10px; padding:12px; border-radius:8px; background:#f7f8fa; }
 .ac-history-entry h4 { margin:0 0 8px; }
 .ac-history-entry p { margin:6px 0; font-size:14px; }
+
+/* Persistent navigation and view-toggle feedback. */
+.topbar button.ghost:hover { background: #f0f3f8; border-color: #94a3b8; }
+.topbar button[aria-current="page"] { background: var(--red); border-color: var(--red); color: white; }
+.topbar button[aria-pressed="true"] { background: #e7f0ff; border-color: var(--blue); color: var(--blue); font-weight: 700; }
+.topbar button:focus-visible { outline: 3px solid #88b7ef; outline-offset: 2px; }
