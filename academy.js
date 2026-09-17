@@ -2,6 +2,7 @@
 export function createAcademy({ db, context, refresh, legacyHome, legacyStudent, notices, holiday=()=>'', escape: h }) {
   let items = [], children = [], points = [], ready = false, problem = '', loadedFor = '', panel = '', busy = false;
   let selected = new Set(), day = date(), period = '', student = '', month = date().slice(0,7), rankMonths=1, rankStart='',rankEnd='', rankings=[];
+  let taskArchives=[];
   let commentReviews=[],commentNotifications=[],commentSearch='',commentFilter='all',commentsReady=false;
   let draftTimer, loadPromise, batchIds=new Map(), legacyRecords=[], parentAccounts=[], familyLinks=[];
   const requestId=key=>{if(!batchIds.has(key))batchIds.set(key,crypto.randomUUID());return batchIds.get(key);};
@@ -41,6 +42,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(ch.error||pt.error)throw new Error('가족·점수 정보를 불러오지 못했습니다.');
       children=ch.data||[];points=pt.data||[];
       if(staff()){
+        const archives=await readAll('academy_task_archives','archived_at');if(archives.error)throw new Error('완료 업무 보관 기능의 서버 연결을 확인해주세요.');taskArchives=archives.data||[];
         const [reviews,notifications]=await Promise.all([readAll('academy_comment_reviews','updated_at'),admin()?readAll('academy_comment_notifications','created_at'):Promise.resolve({data:[]})]);
         commentsReady=!reviews.error&&!notifications.error;commentReviews=reviews.data||[];commentNotifications=notifications.data||[];
       }
@@ -73,9 +75,15 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const d=taskDrafts[String(shared)]||{};
     return `<form class="ac-quick-task" data-ac-form="task" data-shared="${shared}"><div class="ac-quick-row"><textarea name="titles" rows="1" aria-label="할 일" placeholder="할 일 입력 · Enter로 추가, Shift+Enter로 다음 할 일">${h(d.titles||'')}</textarea>${select('우선순위','priority',[['normal','보통'],['high','높음'],['low','낮음']],d.priority||'normal')}${input('마감일','due',d.due||'','date')}${shared&&admin()?select('담당 직원','assignee',c().state.teachers.filter(t=>t.active).map(t=>[t.id,t.name]),d.assignee||uid()):`<input name="assignee" type="hidden" value="${uid()}"/>`}<button type="submit" class="primary">추가</button></div><input name="shared" type="hidden" value="${shared}"/><details class="ac-task-options"><summary>추가 설정</summary><div class="ac-quick-row">${input('프로젝트','project',d.project||'')}${select('반복','repeat',[['none','반복 없음'],['daily','매일 (휴원일 제외)'],['weekly','매주 같은 요일'],['monthly','매월 같은 날짜']],d.repeat||'none')}${input('반복 종료일','repeat_end',d.repeat_end||'','date')}</div></details><p class="ac-form-status" role="status"></p></form>`;
   }
+  const archivedTask=id=>taskArchives.some(a=>a.task_id===id&&a.is_archived);
+  const canArchive=i=>admin()||(i.owner_id===uid()&&i.audience==='private');
+  function taskHistory(shared){
+    const list=taskArchives.filter(a=>a.is_archived).filter(a=>{const i=items.find(i=>i.id===a.task_id);return i&&(shared?i.audience==='staff':i.assignee_id===uid()||i.owner_id===uid());});
+    return form('완료 기록','readonly',list.map(a=>{const i=a.snapshot;return `<article class="home-notice"><strong>${h(i.title)}</strong><small>${h(teacher(i.assignee_id))} · 마감 ${h(i.due_at?.slice(0,10)||'없음')}</small><p>완료 ${new Date(i.updated_at).toLocaleString('ko-KR')}<br/>확인·보관 ${new Date(a.archived_at).toLocaleString('ko-KR')} · ${h(teacher(a.archived_by))}</p>${canArchive(i)?btn('완료 칸으로 복원','task-restore',i.id):''}</article>`;}).join('')||empty('보관된 완료 업무가 없습니다.'),'',btn('닫기','close'));
+  }
   function taskBoard(shared=false){
-    const list=rows('task').filter(i=>(shared?i.audience==='staff':i.assignee_id===uid()||i.owner_id===uid()) && (i.day<=date()||i.status==='doing')).sort((a,b)=>({high:0,normal:1,low:2}[a.body.priority]??1)-({high:0,normal:1,low:2}[b.body.priority]??1)||(a.due_at||'z').localeCompare(b.due_at||'z'));
-    return `<div class="between"><h3>${shared?'함께 할 일':admin()?'원장 할 일':'내가 할 일'}</h3></div>${quickTask(shared)}<div class="ac-board">${['todo','doing','done'].map(st=>`<section><h4>${labels[st]} <span>${list.filter(i=>i.status===st).length}</span></h4>${list.filter(i=>i.status===st).map(i=>`<article class="ac-task"><strong>${h(i.title)}</strong><small>${h(teacher(i.assignee_id))}${i.body.project?' · '+h(i.body.project):''} · ${{high:'높음',normal:'보통',low:'낮음'}[i.body.priority]||'보통'}</small>${i.due_at?`<small class="${i.status!=='done'&&i.due_at<new Date().toISOString()?'ac-overdue':''}">${h(i.due_at.slice(0,10))} 마감</small>`:''}<div>${st!=='todo'?btn('←','task-back',i.id):''}${st!=='done'?btn(st==='todo'?'진행 →':'완료 ✓','task-next',i.id):''}</div></article>`).join('')||empty('등록된 업무가 없습니다.')}</section>`).join('')}</div>`;
+    const list=rows('task').filter(i=>!archivedTask(i.id)).filter(i=>(shared?i.audience==='staff':i.assignee_id===uid()||i.owner_id===uid()) && (i.day<=date()||i.status==='doing')).sort((a,b)=>({high:0,normal:1,low:2}[a.body.priority]??1)-({high:0,normal:1,low:2}[b.body.priority]??1)||(a.due_at||'z').localeCompare(b.due_at||'z'));
+    return `<div class="between"><h3>${shared?'함께 할 일':admin()?'원장 할 일':'내가 할 일'}</h3>${btn('완료 기록','task-history',String(shared))}</div>${quickTask(shared)}<div class="ac-board">${['todo','doing','done'].map(st=>`<section><h4>${labels[st]} <span>${list.filter(i=>i.status===st).length}</span></h4>${list.filter(i=>i.status===st).map(i=>`<article class="ac-task"><strong>${h(i.title)}</strong><small>${h(teacher(i.assignee_id))}${i.body.project?' · '+h(i.body.project):''} · ${{high:'높음',normal:'보통',low:'낮음'}[i.body.priority]||'보통'}</small>${i.due_at?`<small class="${i.status!=='done'&&i.due_at<new Date().toISOString()?'ac-overdue':''}">${h(i.due_at.slice(0,10))} 마감</small>`:''}<div>${st!=='todo'?btn('←','task-back',i.id):''}${st!=='done'?btn(st==='todo'?'진행 →':'완료 ✓','task-next',i.id):canArchive(i)?btn('확인·보관','task-archive',i.id):'<small>원장 확인 대기</small>'}</div></article>`).join('')||empty('등록된 업무가 없습니다.')}</section>`).join('')}</div>`;
   }
   function calendar(){
     const [y,m]=month.split('-').map(Number);const start=new Date(y,m-1,1).getDay();const count=new Date(y,m,0).getDate();
@@ -203,6 +211,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     try{
       if(a==='close'){panel='';batchIds.clear();clearTimeout(draftTimer);refresh();return;}
       if(a==='reload'){await load();refresh();return;}
+      if(a==='task-history'){panel=taskHistory(id==='true');refresh();return;}
+      if(a==='task-archive'||a==='task-restore'){busy=true;b.disabled=true;const r=await db.rpc('academy_archive_task',{p_id:id,p_expected:i.updated_at,p_restore:a==='task-restore'});if(r.error)throw r.error;await load();if(a==='task-restore')panel='';refresh();return;}
       if(a==='child'){student=id;refresh();return;}
       if(a==='period'){period=id;selected.clear();refresh();return;}
       if(a==='clear'){selected.clear();refresh();return;}
