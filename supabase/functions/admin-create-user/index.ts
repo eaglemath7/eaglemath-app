@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
     const parentRelation: string = (body.parentRelation || "").trim();
     const studyPlans = Array.isArray(body.studyPlans) ? body.studyPlans : [];
 
-    if (!["admin", "deputy", "teacher", "student"].includes(role)) {
+    if (!["admin", "deputy", "teacher", "assistant", "student"].includes(role)) {
       return jsonResponse({ error: "invalid role" }, 400);
     }
     if (!name || !loginId) return jsonResponse({ error: "name/loginId required" }, 400);

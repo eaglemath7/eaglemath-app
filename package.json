@@ -1,0 +1,1 @@
+{"name":"eaglemath-app","private":true,"type":"module","scripts":{"test":"node tests/workflow.test.mjs","check":"node --check app.js && node --check academy.js"},"devDependencies":{"@electric-sql/pglite":"0.4.6"}}

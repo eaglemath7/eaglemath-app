@@ -1,9 +1,11 @@
+import { createAcademy } from "./academy.js?v=16";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmdG5wZnBocmttcnJvZmJ2cGhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMTIwNzUsImV4cCI6MjA5NjY4ODA3NX0.sPx91LSD9z_OkfH0ebm-6T9DJ4quEhvCdvE7RO_U8s8";
 // anon key는 이제 공개되어도 안전합니다 — 실제 접근 제어는 Supabase Row Level Security가 담당합니다.
-const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const portal = location.pathname.match(/\/(teacher|student|parent)(?:\/|$)/)?.[1] || "";
+const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, portal ? { auth: { storageKey: `eagle-${portal}-session` } } : {});
 
 const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
 const DEFAULT_PERIODS = ["1교시", "2교시", "3교시", "4교시", "5교시", "6교시"];
@@ -38,6 +40,14 @@ const DEFAULT_UNITS = [
 ];
 const GRADES = ["초1", "초2", "초3", "초4", "초5", "초6", "중1", "중2", "중3", "고1", "고2", "고3"];
 const TERMS = ["1학기", "2학기"];
+// 재원: 정상적으로 다니는 중. 휴원: 일시적으로 쉬는 중(로그인은 막히지만 곧 돌아올 예정).
+// 퇴원: 완전히 그만둠. 셋 다 학생 행과 학습기록은 그대로 남아있고, 나중에 다시
+// "재원"으로 바꾸면(재등록) 기존 기록이 그대로 이어집니다.
+const STUDENT_STATUSES = ["재원", "휴원", "퇴원"];
+// 삭제: 학생 표/탭 어디에도 안 보이는 휴지통 상태. 다른 세 상태와 마찬가지로
+// 행과 기록은 안 지워지고, 휴지통에서 "복구"를 누르면 재원으로 바로 돌아옵니다.
+// 진짜로 계정까지 완전히 지우고 싶을 때만 휴지통 안의 "완전 삭제"를 씁니다.
+const DELETED_STATUS = "삭제";
 const KOREAN_HOLIDAYS = {
   "2026-01-01": "신정",
   "2026-02-16": "설날 연휴", "2026-02-17": "설날", "2026-02-18": "설날 연휴",
@@ -74,21 +84,31 @@ const todayIso = () => {
 const todayDay = () => DAYS[(new Date().getDay() + 6) % 7];
 const app = document.getElementById("app");
 
-let state = { teachers: [], students: [], periods: [], schedules: [], materials: DEFAULT_MATERIALS, units: DEFAULT_UNITS, records: [], confirmations: [], academicEvents: [] };
+let state = { teachers: [], students: [], periods: [], schedules: [], materials: DEFAULT_MATERIALS, units: DEFAULT_UNITS, records: [], confirmations: [], comments: [], academicEvents: [] };
 let session = null;
 let route = "home";
+// 노트북/큰 화면에서 좌우 여백 없이 꽉 채워 보고 싶을 때 켜는 넓게 보기.
+// 기기별로 다를 수 있어서 localStorage에만 저장(서버 동기화 안 함).
+let wideView = false;
+try { wideView = localStorage.getItem("eagle-wide-view") === "1"; } catch { wideView = false; }
 let selectedPeriod = "1교시";
 let selectedStudents = new Set();
+let selectedDraftIds = new Set();
 let modal = null;
 let searchRenderTimer = null;
 let listenersReady = false;
 let studentViewDate = todayIso();
 let calendarMonth = todayIso().slice(0, 7);
+// 형제/자매가 같은 계정으로 로그인해도 서로의 알림장을 볼 수 있게 하는
+// "지금 보고 있는 학생" 상태입니다. null이면 로그인한 본인 자신을 봅니다.
+let activeStudentId = null;
 // 관리자 화면 "학생" 표 검색/필터 상태. 모달이 아니라 항상 떠 있는 표라서
 // modal 객체가 아니라 이렇게 별도 전역 변수로 둡니다.
 let adminStudentQuery = "";
 let adminStudentGrade = "";
 let adminStudentSchool = "";
+let adminStudentStatus = "재원";
+let trashExpanded = false;
 let syncStatus = "불러오는 중";
 
 window.addEventListener("error", (event) => {
@@ -137,7 +157,13 @@ function showMessage(message) {
 // 클라이언트는 항상 "전체 조회"만 하면 됩니다.
 // =========================================================
 async function loadAllData() {
-  const [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes] = await Promise.all([
+  if (session?.role === "parent") {
+    const [events, kids] = await Promise.all([supabase.from("academic_events").select("*"), supabase.rpc("academy_children")]);
+    state.academicEvents = (events.data || []).map(r => ({id:r.id,title:r.title,startDate:r.start_date,endDate:r.end_date,type:r.type,visibility:r.visibility,note:r.note||""}));
+    state.students = (kids.data || []).map(r => ({id:r.id,name:r.name,schoolYear:r.school_year,schoolName:r.school_name}));
+    return;
+  }
+  const [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes, commentsRes] = await Promise.all([
     supabase.from("profiles").select("*"),
     supabase.from("staff_directory").select("*"),
     supabase.from("students").select("*"),
@@ -146,11 +172,12 @@ async function loadAllData() {
     supabase.from("materials").select("*"),
     supabase.from("units").select("*"),
     supabase.from("academic_events").select("*"),
-    supabase.from("lesson_records").select("*"),
-    supabase.from("record_confirmations").select("*")
+    session?.type === "student" ? supabase.rpc("academy_legacy_records") : supabase.from("lesson_records").select("*"),
+    supabase.from("record_confirmations").select("*"),
+    supabase.from("record_comments").select("*")
   ]);
 
-  const errors = [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes]
+  const errors = [profilesRes, staffDirRes, studentsRes, periodsRes, schedulesRes, materialsRes, unitsRes, eventsRes, recordsRes, confirmationsRes, commentsRes]
     .map((res) => res.error).filter(Boolean);
   if (errors.length) {
     console.error("loadAllData errors", errors);
@@ -163,7 +190,7 @@ async function loadAllData() {
   toList(staffDirRes.data).forEach((row) => {
     teacherMap.set(row.id, { id: row.id, name: row.name, role: row.role, loginId: "", phone: "", active: true, mustChangePassword: false });
   });
-  toList(profilesRes.data).filter((p) => p.role !== "student").forEach((row) => {
+  toList(profilesRes.data).filter((p) => !["student","parent"].includes(p.role)).forEach((row) => {
     teacherMap.set(row.id, {
       id: row.id, name: row.name, role: row.role, loginId: row.login_id, phone: row.phone || "",
       active: row.active, mustChangePassword: row.must_change_password
@@ -179,6 +206,8 @@ async function loadAllData() {
       schoolName: row.school_name || "", studentPhone: row.student_phone || "", parentPhone: row.parent_phone || "",
       parentName: row.parent_name || "", parentRelation: row.parent_relation || "",
       loginId: profile.login_id || "", studyPlans: toList(row.study_plans),
+      familyId: row.family_id || "",
+      status: row.status || "재원",
       active: profile.active !== false
     };
   }).sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -211,7 +240,8 @@ async function loadAllData() {
     content: row.content || "", assignment: row.assignment || "", parentMessage: row.parent_message || "",
     studentMessage: row.student_message || "", keywords: row.keywords || "", testName: row.test_name || "", testScore: "",
     nextPlan: row.next_plan || "", createdBy: row.created_by, updatedBy: row.updated_by, version: row.version,
-    hidden: row.hidden, hiddenBy: row.hidden_by, hiddenAt: row.hidden_at, createdAt: row.created_at, updatedAt: row.updated_at
+    hidden: row.hidden, hiddenBy: row.hidden_by, hiddenAt: row.hidden_at, createdAt: row.created_at, updatedAt: row.updated_at,
+    isDraft: row.is_draft === true
   }));
 
   state.confirmations = toList(confirmationsRes.data).map((row) => ({
@@ -219,6 +249,14 @@ async function loadAllData() {
     keywords: toList(row.keywords), assignmentConfirmed: row.assignment_confirmed,
     assignmentConfirmedAt: row.assignment_confirmed_at, confirmedAt: row.confirmed_at
   }));
+
+  state.comments = toList(commentsRes.data).map((row) => ({
+    id: row.id, recordId: row.record_id, studentId: row.student_id,
+    authorId: row.author_id, authorRole: row.author_role, content: row.content,
+    teacherConfirmedAt: row.teacher_confirmed_at, teacherConfirmedBy: row.teacher_confirmed_by,
+    adminConfirmedAt: row.admin_confirmed_at, adminConfirmedBy: row.admin_confirmed_by,
+    createdAt: row.created_at
+  })).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 }
 
 // 관리자 전용 Edge Function 호출 (service_role 키가 필요한 계정 생성/비밀번호
@@ -245,6 +283,23 @@ function studentName(studentId) {
   return toList(state.students).find(s => s.id === studentId)?.name || "알 수 없음";
 }
 
+// 학생 화면에서 "지금 보고 있는 학생"의 id. 형제/자매를 전환하지 않았으면
+// 로그인한 본인(session.id)입니다.
+function currentStudentId() {
+  return activeStudentId || session.id;
+}
+
+// 로그인한 학생과 같은 family_id를 가진 형제/자매 목록(본인 포함, 이름순).
+// family_id가 없으면 본인만 담긴 배열을 돌려줍니다.
+function familySiblings() {
+  const me = toList(state.students).find(s => s.id === session.id);
+  if (!me) return [];
+  if (!me.familyId) return [me];
+  return toList(state.students)
+    .filter(s => s.familyId === me.familyId)
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+}
+
 function currentUserName() {
   return session?.name || "";
 }
@@ -254,7 +309,7 @@ function canAdmin() {
 }
 
 function canTeacher() {
-  return ["admin", "deputy", "teacher"].includes(session?.role);
+  return ["admin", "deputy", "teacher", "assistant"].includes(session?.role);
 }
 
 function periodOptions() {
@@ -377,12 +432,16 @@ function formatTest(value = "", legacyScore = "") {
 async function establishSession(userId) {
   const { data: profile, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
   if (error || !profile || !profile.active) return false;
+  if (portal === "teacher" && !["admin","deputy","teacher","assistant"].includes(profile.role)) return false;
+  if (portal === "student" && profile.role !== "student") return false;
+  if (portal === "parent" && profile.role !== "parent") return false;
   session = {
-    type: profile.role === "student" ? "student" : "teacher",
+    type: ["student","parent"].includes(profile.role) ? profile.role : "teacher",
     id: profile.id, name: profile.name, role: profile.role, mustChangePassword: profile.must_change_password
   };
-  route = profile.role === "student" ? "student" : (canAdmin() ? "admin" : "teacher");
+  route = "home";
   selectedPeriod = "1교시";
+  activeStudentId = null;
   return true;
 }
 
@@ -393,9 +452,25 @@ async function login(event) {
   const password = form.get("password").trim();
   const errorEl = document.getElementById("loginError");
   errorEl.textContent = "로그인 중...";
-  const { data, error } = await supabase.auth.signInWithPassword({ email: loginIdToEmail(loginId), password });
+  let data, error;
+  if (portal === "parent") {
+    const result = await supabase.functions.invoke("academy-parent-login", { body: { loginId, password } });
+    if (result.error || !result.data?.session) { errorEl.textContent = "학부모 아이디와 비밀번호를 확인해주세요. 가족 연결이 먼저 필요합니다."; return; }
+    const signed = await supabase.auth.setSession(result.data.session); data = signed.data; error = signed.error;
+  } else ({ data, error } = await supabase.auth.signInWithPassword({ email: loginIdToEmail(loginId), password }));
   if (error || !data?.user) {
-    errorEl.textContent = "아이디 또는 비밀번호를 확인해주세요.";
+    const code = error?.code || "";
+    if (code === "invalid_credentials") {
+      errorEl.textContent = "등록된 아이디 또는 비밀번호가 일치하지 않습니다. 관리자 계정 생성 시 설정한 비밀번호를 입력해주세요.";
+    } else if (code === "email_not_confirmed") {
+      errorEl.textContent = "계정 인증이 완료되지 않았습니다. Supabase에서 계정의 이메일 인증 상태를 확인해주세요.";
+    } else if (error?.status === 429) {
+      errorEl.textContent = "로그인 시도가 많습니다. 잠시 후 다시 시도해주세요.";
+    } else if (!error?.status || error.status >= 500) {
+      errorEl.textContent = "로그인 서버에 연결하지 못했습니다. 인터넷 연결과 서버 상태를 확인한 뒤 다시 시도해주세요.";
+    } else {
+      errorEl.textContent = `로그인 실패: ${error?.message || "인증 응답을 확인할 수 없습니다."}`;
+    }
     return;
   }
   const ok = await establishSession(data.user.id);
@@ -409,10 +484,12 @@ async function login(event) {
 }
 
 async function logout() {
+  academy.reset();
   await supabase.auth.signOut();
   session = null;
   route = "home";
   selectedStudents.clear();
+  activeStudentId = null;
   modal = null;
   render();
 }
@@ -427,7 +504,7 @@ function render() {
   app.innerHTML = `
     <div class="app-shell">
       ${renderTopbar()}
-      <main class="main">
+      <main class="main ${wideView ? "wide" : ""}">
         ${renderRoute()}
       </main>
       ${modal ? renderModal() : ""}
@@ -449,7 +526,8 @@ function renderLogin() {
       <section class="login-box">
         <img class="login-logo" src="./logo.png" alt="독수리수학 로고" />
         <h1 class="login-title">수학이 너희를 자유케하리라</h1>
-        <p class="login-subtitle">강사용 학습기록 · 학생/학부모 알림장</p>
+        <p class="login-subtitle">${{teacher:"원장·강사 로그인",student:"학생 로그인",parent:"학부모 로그인"}[portal] || "독수리수학 학습 알림장"}</p>
+        <div class="ac-login-links"><a href="./teacher/">강사</a><a href="./student/">학생</a><a href="./parent/">학부모</a></div>
         <form id="loginForm" class="panel stack">
           <label>아이디 <input name="loginId" autocomplete="username" placeholder="아이디" required /></label>
           <label>비밀번호 <input name="password" type="password" autocomplete="current-password" placeholder="비밀번호" required /></label>
@@ -474,9 +552,11 @@ function renderTopbar() {
       <div class="row">
         <span class="badge">${escapeHtml(syncStatus)}</span>
         <span class="user-chip">${escapeHtml(currentUserName())}</span>
-        ${canTeacher() ? `<button class="ghost" data-route="teacher">강사</button>` : ""}
+        <button class="${route === "home" ? "primary" : "ghost"}" data-route="home" ${route === "home" ? 'aria-current="page"' : ""}>홈</button>
+        ${canTeacher() ? `<button class="ghost" data-route="academy_class">오늘 수업</button>` : ""}<button class="ghost" data-route="academy_inbox">과제·질문</button><button class="ghost" data-route="academy_growth">성장기록</button>${canTeacher()?'<button class="ghost" data-route="academy_comments">학부모 코멘트</button>':''}
         ${canAdmin() ? `<button class="ghost" data-route="admin">관리</button>` : ""}
         ${session.type === "student" ? `<button class="ghost" data-route="student">알림장</button>` : ""}
+        <button class="ghost" data-action="toggleWideView">${wideView ? "좁게 보기" : "넓게 보기"}</button>
         <button data-action="logout">나가기</button>
       </div>
     </header>
@@ -484,6 +564,8 @@ function renderTopbar() {
 }
 
 function routeLabel() {
+  if (route.startsWith("academy_")) return ({academy_class:"오늘 수업",academy_inbox:"과제·질문",academy_growth:"성장기록",academy_comments:"학부모 코멘트",academy_learning:"오늘의 학습"})[route] || "홈";
+  if (route === "home") return "홈";
   if (route === "admin") return "관리자/부원장 전체 관리";
   if (route === "teacher") return "강사 수업기록";
   return "학생/학부모 알림장";
@@ -634,6 +716,8 @@ function renderCalendarDay() {
 }
 
 function renderRoute() {
+  if (route === "home" || route.startsWith("academy_")) return academy.render(route);
+  if (session.role === "parent") return academy.render("academy_learning");
   if (route === "admin" && canAdmin()) return renderAdmin();
   if (route === "student") return renderStudent();
   return renderTeacher();
@@ -656,6 +740,8 @@ function renderTeacher() {
   return `
     <div class="grid teacher-dashboard">
       ${session.mustChangePassword ? renderPasswordPanel() : ""}
+      ${renderUnwrittenPanel(session.id)}
+      ${renderParentCommentInbox()}
       ${renderCalendar({ teacherId: session.id })}
       <section class="panel stack today-class-panel">
         <div class="between">
@@ -705,6 +791,135 @@ function renderPasswordPanel() {
         <button class="primary" type="submit">변경</button>
       </form>
     </section>
+  `;
+}
+
+// 오늘 요일 시간표에 배정된 학생 중, 오늘 날짜로 학습기록이 아직 하나도
+// 없는 학생 목록. teacherId를 주면 그 선생님 담당 수업만, 안 주면 전체.
+function todayUnwrittenStudents(teacherId = "") {
+  const day = todayDay();
+  const today = todayIso();
+  const scheduledIds = [...new Set(
+    toList(state.schedules)
+      .filter(s => s.day === day && (!teacherId || toList(s.teacherIds).includes(teacherId)))
+      .map(s => s.studentId)
+  )];
+  const writtenIds = new Set(
+    toList(state.records)
+      .filter(r => !r.hidden && r.lessonDate === today)
+      .flatMap(r => toList(r.studentIds))
+  );
+  return scheduledIds
+    .filter(id => !writtenIds.has(id))
+    .map(id => toList(state.students).find(s => s.id === id))
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+}
+
+// 다른 독수리수학 관리프로그램의 "수업일지 안 쓴 학생" 위젯 참고 — 오늘
+// 수업이 있는데 아직 기록을 안 쓴 학생을 한눈에 보여주고, 클릭 한 번으로
+// 바로 그 학생 기록 작성 화면으로 이동합니다.
+function renderUnwrittenPanel(teacherId = "") {
+  const unwritten = todayUnwrittenStudents(teacherId);
+  return `
+    <section class="panel stack">
+      <div class="between">
+        <h2 class="section-title">📝 오늘 수업일지</h2>
+        ${unwritten.length ? `<span class="badge warn">미작성 ${unwritten.length}명</span>` : `<span class="badge good">전부 작성 완료</span>`}
+      </div>
+      ${unwritten.length ? `
+        <div class="muted small">이름을 누르면 바로 그 학생 기록 작성 화면으로 이동합니다.</div>
+        <div class="student-picker">
+          ${unwritten.map(student => `<button type="button" class="student-button" data-action="pickUnwrittenStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${escapeHtml(student.loginId)}</span></button>`).join("")}
+        </div>
+      ` : `<div class="empty">오늘 배정된 학생은 모두 기록을 작성했어요.</div>`}
+    </section>
+  `;
+}
+
+// 학부모/학생이 남긴 코멘트 중, 강사·원장 둘 다 확인하지 않은 것들.
+// 다른 독수리수학 관리프로그램의 "학부모 코멘트" 수신함을 참고했습니다.
+function unresolvedComments() {
+  return toList(state.comments)
+    .filter(c => c.authorRole === "student")
+    .filter(c => !(c.teacherConfirmedAt && c.adminConfirmedAt))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+// 강사가 저장한 기록은 임시저장(초안) 상태로 시작해서 관리자/부원장이
+// 발행해야 학부모에게 보입니다. 여기서 한 건씩 또는 여러 건을 한꺼번에
+// 발행할 수 있습니다.
+function draftRecords() {
+  return toList(state.records)
+    .filter(r => r.isDraft && !r.hidden)
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+}
+
+function renderDraftRecordsPanel() {
+  if (!canAdmin()) return "";
+  const drafts = draftRecords();
+  return `
+    <section class="panel stack">
+      <div class="between">
+        <h2 class="section-title">🗂️ 임시저장 목록</h2>
+        ${drafts.length ? `<span class="badge warn">발행 대기 ${drafts.length}건</span>` : `<span class="badge good">발행 대기 없음</span>`}
+      </div>
+      ${drafts.length ? `
+        <div class="toolbar">
+          <button type="button" data-action="selectAllDrafts">전체 선택</button>
+          <button type="button" data-action="clearDraftSelection">선택 해제</button>
+          <button class="primary" type="button" data-action="publishSelectedDrafts" ${selectedDraftIds.size ? "" : "disabled"}>선택 ${selectedDraftIds.size}건 발행</button>
+        </div>
+        <div class="list">
+          ${drafts.map(record => `
+            <div class="between">
+              <label class="row">
+                <input type="checkbox" data-action="toggleDraftSelect" data-id="${record.id}" ${selectedDraftIds.has(record.id) ? "checked" : ""} />
+                <span>${escapeHtml(record.lessonDate)} · ${escapeHtml(toList(record.studentIds).map(studentName).join(", "))} · 작성: ${escapeHtml(teacherName(record.createdBy))}</span>
+              </label>
+              <button type="button" data-action="publishRecord" data-id="${record.id}">발행</button>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<div class="empty">발행 대기 중인 임시저장 기록이 없습니다.</div>`}
+    </section>
+  `;
+}
+
+function renderParentCommentInbox() {
+  const unresolved = unresolvedComments();
+  return `
+    <section class="panel stack">
+      <div class="between">
+        <h2 class="section-title">💬 학부모 코멘트</h2>
+        ${unresolved.length ? `<span class="badge warn">확인 필요 ${unresolved.length}건</span>` : `<span class="badge good">모두 확인 완료</span>`}
+      </div>
+      <div class="muted small">강사가 확인하고 원장(관리자/부원장)도 확인해야 이 목록에서 사라집니다.</div>
+      ${unresolved.length ? `<div class="list">${unresolved.map(renderCommentInboxItem).join("")}</div>` : `<div class="empty">확인이 필요한 학부모 코멘트가 없습니다.</div>`}
+    </section>
+  `;
+}
+
+function renderCommentInboxItem(comment) {
+  const record = toList(state.records).find(r => r.id === comment.recordId);
+  return `
+    <div class="stack comment-inbox-item">
+      <div class="between">
+        <strong>${escapeHtml(studentName(comment.studentId))}</strong>
+        <span class="muted small">${record ? escapeHtml(record.lessonDate) : ""}</span>
+      </div>
+      <span>${escapeHtml(comment.content)}</span>
+      <div class="toolbar">
+        <span class="badge ${comment.teacherConfirmedAt ? "good" : "warn"}">강사 ${comment.teacherConfirmedAt ? "확인" : "미확인"}</span>
+        <span class="badge ${comment.adminConfirmedAt ? "good" : "warn"}">원장 ${comment.adminConfirmedAt ? "확인" : "미확인"}</span>
+        ${session.role === "teacher" && !comment.teacherConfirmedAt ? `<button data-action="confirmCommentTeacher" data-id="${comment.id}">강사 확인</button>` : ""}
+        ${canAdmin() && !comment.adminConfirmedAt ? `<button data-action="confirmCommentAdmin" data-id="${comment.id}">원장 확인</button>` : ""}
+      </div>
+      <form class="comment-form row" data-form="addComment" data-record-id="${comment.recordId}" data-student-id="${comment.studentId}">
+        <input name="content" placeholder="답글 남기기" />
+        <button type="submit">답글</button>
+      </form>
+    </div>
   `;
 }
 
@@ -779,6 +994,7 @@ function renderStudentDetail() {
           <div><span class="muted small">학부모 휴대폰</span><div>${escapeHtml(student.parentPhone || "-")}</div></div>
           <div><span class="muted small">학부모 성함</span><div>${escapeHtml(student.parentName || "-")}</div></div>
           <div><span class="muted small">학부모 관계</span><div>${escapeHtml(student.parentRelation || "-")}</div></div>
+          <div><span class="muted small">형제/자매 연결</span><div>${student.familyId ? escapeHtml(toList(state.students).filter(s => s.familyId === student.familyId && s.id !== student.id).map(s => s.name).join(", ") || "-") : "-"}</div></div>
         </div>
       </section>
       <section class="panel stack">
@@ -798,9 +1014,69 @@ function adminFilteredStudents() {
   return toList(state.students).filter(student => {
     if (adminStudentGrade && student.schoolYear !== adminStudentGrade) return false;
     if (adminStudentSchool && student.schoolName !== adminStudentSchool) return false;
+    if (adminStudentStatus && (student.status || "재원") !== adminStudentStatus) return false;
     if (query && !(`${student.name} ${student.loginId} ${student.parentPhone}`).includes(query)) return false;
     return true;
   });
+}
+
+// 재원/휴원/퇴원 탭. 그만둔 학생이 쌓여도 평소 학생 표에는 안 보이도록
+// 기본값은 재원이고(adminStudentStatus 초기값), 탭으로 눌러서 바꿉니다.
+function renderAdminStudentStatusTabs() {
+  const counts = STUDENT_STATUSES.reduce((acc, status) => {
+    acc[status] = toList(state.students).filter(student => (student.status || "재원") === status).length;
+    return acc;
+  }, {});
+  return `
+    <div class="tabs">
+      ${STUDENT_STATUSES.map(status => `<button class="${status === adminStudentStatus ? "selected" : ""}" data-action="filterAdminStudentStatusTab" data-status="${status}">${status} ${counts[status]}명</button>`).join("")}
+    </div>
+  `;
+}
+
+// 휴지통: 삭제 상태인 학생만 모아서 보여주고, 복구(재원으로) 또는 완전 삭제
+// (계정까지 진짜로 지움)를 고를 수 있게 합니다.
+function renderStudentTrash() {
+  const deleted = toList(state.students).filter(s => s.status === DELETED_STATUS);
+  if (!deleted.length) return "";
+  return `
+    <section class="panel stack">
+      <div class="between">
+        <strong>🗑️ 삭제한 학생 ${deleted.length}명 <span class="muted small">실수로 지웠다면 여기서 되살리세요</span></strong>
+        <button type="button" data-action="toggleStudentTrash">${trashExpanded ? "접기 ▲" : "펼치기 ▼"}</button>
+      </div>
+      ${trashExpanded ? `
+        <div class="muted small">학생을 삭제해도 기록은 지워지지 않습니다. 복구하면 학습기록·시간표·확인내역이 모두 그대로 돌아옵니다.</div>
+        <div class="list">
+          ${deleted.map(s => `
+            <div class="between">
+              <span>${escapeHtml(s.name)} <span class="muted small">${escapeHtml(s.loginId)}</span></span>
+              <span class="toolbar">
+                <button data-action="restoreStudent" data-id="${s.id}">복구</button>
+                <button class="danger" data-action="deleteStudent" data-id="${s.id}">완전 삭제</button>
+              </span>
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
+// 이름만 입력해서 한 번에 등록하는 빠른 등록. 시간표·교재·형제 연결 등
+// 나머지 정보는 나중에 "수정"에서 채우면 됩니다. 다른 독수리수학
+// 관리프로그램의 한 줄짜리 "학생 추가" 입력창을 참고했습니다.
+function renderQuickStudentForm() {
+  return `
+    <form class="row" data-form="quickStudent">
+      <input name="name" placeholder="빠른 등록: 이름만 입력" required style="flex:1;min-width:120px" />
+      <select name="schoolYear">
+        <option value="">학년(선택)</option>
+        ${GRADES.map(g => `<option value="${g}">${g}</option>`).join("")}
+      </select>
+      <button class="blue" type="submit">빠른 등록</button>
+    </form>
+  `;
 }
 
 function renderAdminStudentFilters() {
@@ -833,7 +1109,7 @@ function renderAdmin() {
         <div class="between">
           <div>
             <h2 class="section-title">전체 관리</h2>
-            <div class="muted small">관리자와 부원장은 모든 등록, 수정, 숨김, 복구 권한을 가집니다.</div>
+            <div class="muted small">관리자와 부원장은 모든 등록, 수정, 재원/휴원/퇴원 상태 변경 권한을 가집니다.</div>
           </div>
           <div class="toolbar">
             <button class="primary" data-action="openStudentForm">학생 등록</button>
@@ -850,10 +1126,16 @@ function renderAdmin() {
           </div>
         </div>
       </section>
+      ${renderUnwrittenPanel()}
+      ${renderDraftRecordsPanel()}
+      ${renderParentCommentInbox()}
       ${renderCalendar()}
       <section class="grid two">
         <div class="panel">
           <h2 class="section-title">학생</h2>
+          ${renderQuickStudentForm()}
+          ${renderStudentTrash()}
+          ${renderAdminStudentStatusTabs()}
           ${renderAdminStudentFilters()}
           <div class="muted small">${adminFilteredStudents().length}명 표시 중 (전체 ${toList(state.students).length}명)</div>
           <div class="table-wrap">
@@ -861,14 +1143,17 @@ function renderAdmin() {
               <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
               <tbody>${adminFilteredStudents().map(s => `
                 <tr>
-                  <td><button type="button" class="link-button" data-action="viewStudent" data-id="${s.id}">${escapeHtml(s.name)}</button> ${!s.active ? `<span class="badge bad">숨김</span>` : ""}</td>
+                  <td><button type="button" class="link-button" data-action="viewStudent" data-id="${s.id}">${escapeHtml(s.name)}</button> ${s.status === "퇴원" ? `<span class="badge bad">퇴원</span>` : s.status === "휴원" ? `<span class="badge warn">휴원</span>` : ""}</td>
                   <td>${escapeHtml(s.schoolYear || "-")}</td>
                   <td>${escapeHtml(s.loginId)}</td>
                   <td>${escapeHtml(s.parentPhone || "-")}</td>
                   <td class="toolbar">
                     <button data-action="editStudent" data-id="${s.id}">수정</button>
                     <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
-                    <button data-action="toggleStudent" data-id="${s.id}">${s.active ? "숨김" : "복구"}</button>
+                    <select data-action="changeStudentStatus" data-id="${s.id}">
+                      ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === (s.status || "재원") ? "selected" : ""}>${v}</option>`).join("")}
+                    </select>
+                    <button class="danger" data-action="softDeleteStudent" data-id="${s.id}">삭제</button>
                   </td>
                 </tr>
               `).join("")}</tbody>
@@ -920,18 +1205,34 @@ function roleName(role) {
   return { admin: "관리자", deputy: "부원장", teacher: "강사" }[role] || role;
 }
 
+function renderSiblingSwitcher() {
+  const siblings = familySiblings();
+  if (siblings.length < 2) return "";
+  const activeId = currentStudentId();
+  return `
+    <section class="panel stack">
+      <div class="muted small">한 계정에 연결된 형제/자매예요. 눌러서 서로의 알림장을 볼 수 있어요.</div>
+      <div class="tabs">
+        ${siblings.map(s => `<button class="${s.id === activeId ? "selected" : ""}" data-action="selectSiblingStudent" data-id="${s.id}">${escapeHtml(s.name)}${s.id === session.id ? " (본인)" : ""}</button>`).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function renderStudent() {
+  const viewedId = currentStudentId();
   const records = toList(state.records)
-    .filter(r => toList(r.studentIds).includes(session.id) && !r.hidden)
+    .filter(r => toList(r.studentIds).includes(viewedId) && !r.hidden)
     .sort((a, b) => b.lessonDate.localeCompare(a.lessonDate) || b.updatedAt.localeCompare(a.updatedAt));
   const dayRecords = records.filter(record => record.lessonDate === studentViewDate);
   return `
     <div class="grid">
       ${session.mustChangePassword ? renderPasswordPanel() : ""}
-      ${renderCalendar({ studentId: session.id, parentView: true })}
+      ${renderSiblingSwitcher()}
+      ${renderCalendar({ studentId: viewedId, parentView: true })}
       <section class="panel stack">
         <div class="between">
-          <h2 class="section-title">내 학습 알림장</h2>
+          <h2 class="section-title">${familySiblings().length > 1 ? `${escapeHtml(studentName(viewedId))} 학습 알림장` : "내 학습 알림장"}</h2>
           <button data-action="goToday">오늘</button>
         </div>
         <div class="date-nav">
@@ -951,19 +1252,40 @@ function renderStudentDailyNotices(records) {
   return `<div class="list">${records.map(record => `
     <div class="stack">
       <div class="between">
-        <strong>${isConfirmed(record, session.id) ? "확인한 알림장" : "확인이 필요한 알림장"}</strong>
-        <span class="badge ${isConfirmed(record, session.id) ? "good" : "warn"}">${isConfirmed(record, session.id) ? "확인 완료" : "확인 전"}</span>
+        <strong>${isConfirmed(record, currentStudentId()) ? "확인한 알림장" : "확인이 필요한 알림장"}</strong>
+        <span class="badge ${isConfirmed(record, currentStudentId()) ? "good" : "warn"}">${isConfirmed(record, currentStudentId()) ? "확인 완료" : "확인 전"}</span>
       </div>
       ${renderStudentRecordCard(record)}
       ${renderKeywordConfirm(record)}
       ${renderAssignmentConfirm(record)}
+      ${renderCommentThread(record)}
     </div>
   `).join("")}</div>`;
 }
 
+// 학부모/학생이 학습기록마다 자유롭게 남기는 코멘트. 강사·원장 화면의
+// "학부모 코멘트" 수신함과 같은 데이터를 씁니다.
+function renderCommentThread(record) {
+  const comments = toList(state.comments).filter(c => c.recordId === record.id && c.studentId === currentStudentId());
+  return `
+    <div class="comment-thread stack">
+      ${comments.length ? comments.map(c => `
+        <div class="comment-item">
+          <strong>${c.authorRole === "student" ? "학부모" : escapeHtml(teacherName(c.authorId))}</strong>
+          <span>${escapeHtml(c.content)}</span>
+        </div>
+      `).join("") : ""}
+      <form class="comment-form row" data-form="addComment" data-record-id="${record.id}">
+        <input name="content" placeholder="선생님께 남길 말씀을 적어주세요" required />
+        <button class="primary" type="submit">보내기</button>
+      </form>
+    </div>
+  `;
+}
+
 function renderAssignmentConfirm(record) {
   if (!String(record.assignment || "").trim()) return "";
-  const confirmation = getConfirmation(record.id, session.id);
+  const confirmation = getConfirmation(record.id, currentStudentId());
   const confirmed = confirmation?.assignmentConfirmed === true;
   return `
     <div class="assignment-confirm">
@@ -975,12 +1297,12 @@ function renderAssignmentConfirm(record) {
 function renderKeywordConfirm(record) {
   const keywords = keywordList(record);
   if (!keywords.length) {
-    const confirmed = isConfirmed(record, session.id);
+    const confirmed = isConfirmed(record, currentStudentId());
     return `<button class="primary" data-action="confirmRecord" data-id="${record.id}" ${confirmed ? "disabled" : ""}>${confirmed ? "확인 완료" : "확인 완료하기"}</button>`;
   }
-  const confirmation = getConfirmation(record.id, session.id);
+  const confirmation = getConfirmation(record.id, currentStudentId());
   const checked = toList(confirmation?.keywords);
-  const confirmed = isConfirmed(record, session.id);
+  const confirmed = isConfirmed(record, currentStudentId());
   const allChecked = keywords.every(keyword => checked.includes(keyword));
   return `
     <div class="stack">
@@ -1015,6 +1337,7 @@ function renderRecordCard(record, editable, adminMode = false) {
         <div class="row">
           <span class="badge">${escapeHtml(record.attendance)}</span>
           <span class="badge ${homeworkClass(record.homework)}">${escapeHtml(record.homework)}</span>
+          ${record.isDraft ? `<span class="badge warn">초안(미발행)</span>` : ""}
           ${record.hidden ? `<span class="badge bad">숨김</span>` : ""}
         </div>
       </div>
@@ -1033,6 +1356,7 @@ function renderRecordCard(record, editable, adminMode = false) {
         <div class="form-actions">
           <button data-action="editRecord" data-id="${record.id}">수정</button>
           ${adminMode ? `<button class="${record.hidden ? "" : "danger"}" data-action="toggleRecordHidden" data-id="${record.id}">${record.hidden ? "복구" : "숨김"}</button>` : ""}
+          ${adminMode && record.isDraft ? `<button class="primary" data-action="publishRecord" data-id="${record.id}">발행</button>` : ""}
         </div>
       ` : ""}
     </article>
@@ -1120,6 +1444,7 @@ function renderModal() {
     bulkMaterialForm: () => renderBulkMaterialForm(),
     studentImport: () => renderStudentImportModal(),
     academicEventForm: () => renderAcademicEventForm(),
+    noticeForm: () => renderNoticeForm(),
     calendarDay: () => renderCalendarDay(),
     studentDetail: () => renderStudentDetail()
   };
@@ -1222,6 +1547,7 @@ function renderRecordForm(mode, record = {}) {
       ${mode !== "edit" && studentIds.length > 1 ? renderIndividualRecordFields(studentIds, record, existingByStudent) : ""}
       <datalist id="materials">${toList(state.materials).map(v => `<option value="${escapeHtml(v)}"></option>`).join("")}</datalist>
       <datalist id="units">${toList(state.units).map(v => `<option value="${escapeHtml(v)}"></option>`).join("")}</datalist>
+      ${!canAdmin() ? `<div class="muted small">저장하면 임시저장(초안) 상태가 되고, 원장님/부원장님이 발행해야 학부모님께 보입니다.</div>` : ""}
       <div class="form-actions">
         <button type="button" data-action="closeModal">취소</button>
         <button class="primary" type="submit">저장</button>
@@ -1376,6 +1702,26 @@ function teacherPickerHtml(selectedIds, teachers) {
   return `<div class="student-picker" data-teacher-picker>${teachers.map(t => `<button type="button" class="student-button ${selectedIds.includes(t.id) ? "selected" : ""}" data-action="toggleFormTeacher" data-id="${t.id}">${escapeHtml(t.name)}</button>`).join("")}</div><input type="hidden" name="teacherIds" value="${escapeHtml(JSON.stringify(selectedIds))}" />`;
 }
 
+// 형제/자매로 묶을 다른 학생을 고르는 검색형 피커. 시간표 배정/교재 일괄 설정과
+// 같은 modal.pickerQuery/pickerGrade/pickerSchool을 그대로 재사용합니다(학생 등록/
+// 수정 폼이 열려 있는 동안은 다른 모달이 동시에 열릴 일이 없어서 안전합니다).
+function siblingPickerHtml(excludeStudentId) {
+  const selectedIds = toList(modal.siblingIds);
+  const candidates = toList(state.students).filter(s => s.active && s.id !== excludeStudentId);
+  const pickerStudents = studentPickerList(candidates);
+  return `
+    <section class="panel stack">
+      <div><strong>형제/자매 계정 연결</strong><div class="muted small">체크하면 하나의 로그인 아이디로도 형제/자매의 알림장을 함께 볼 수 있어요.</div></div>
+      ${renderStudentPickerFilters(candidates)}
+      <div class="muted small">${pickerStudents.length}명 표시 중 (전체 ${candidates.length}명)</div>
+      <div class="student-picker">
+        ${pickerStudents.map(s => `<button type="button" class="student-button ${selectedIds.includes(s.id) ? "selected" : ""}" data-action="toggleFormSibling" data-id="${s.id}">${escapeHtml(s.name)}<span>${escapeHtml(s.schoolYear || s.loginId)}</span></button>`).join("")}
+      </div>
+      <input type="hidden" name="siblingIds" value="${escapeHtml(JSON.stringify(selectedIds))}" />
+    </section>
+  `;
+}
+
 function renderStudentForm(student = null) {
   const slots = student ? toList(state.schedules).filter(item => item.studentId === student.id).map(item => ({ day: item.day, period: item.period })) : toList(modal.scheduleSlots);
   const existingSchedules = student ? toList(state.schedules).filter(item => item.studentId === student.id) : [];
@@ -1408,6 +1754,7 @@ function renderStudentForm(student = null) {
         </select></label>
         <label>학부모 성함 <span class="muted small">선택사항</span><input name="parentName" value="${escapeHtml(student?.parentName || "")}" /></label>
       </div>
+      ${siblingPickerHtml(student?.id || "")}
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리로 자동 생성 (그래도 겹치면 -2, -3...)" /></label>
       <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
       <section class="panel stack curriculum-setup">
@@ -1429,6 +1776,42 @@ function renderStudentForm(student = null) {
   `;
 }
 
+
+function renderHomeNotices() {
+  const today = todayIso();
+  const notices = toList(state.academicEvents)
+    .filter(item => item.type === "안내" && (canTeacher() || item.visibility === "전체"))
+    .sort((a, b) => b.startDate.localeCompare(a.startDate));
+  const active = notices.filter(item => item.startDate <= today && today <= item.endDate);
+  const other = notices.filter(item => item.startDate > today || item.endDate < today);
+  const card = item => `<article class="home-notice"><div class="between"><strong>${escapeHtml(item.title)}</strong>${canAdmin() ? `<button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button>` : ""}</div><p class="notice-copy">${escapeHtml(item.note)}</p><div class="muted small">${escapeHtml(item.startDate)} ~ ${escapeHtml(item.endDate)}${item.visibility === "내부" ? " · 직원 전용" : ""}</div></article>`;
+  return `<section class="panel stack home-notices" aria-label="공지사항"><div class="between"><h2 class="section-title">공지사항</h2>${canAdmin() ? `<button data-action="openNotice">공지 쓰기</button>` : ""}</div>${active.length ? active.map(card).join("") : `<p class="muted">현재 게시 중인 공지가 없습니다.</p>`}${canAdmin() && other.length ? `<details><summary>예정·지난 공지 ${other.length}개</summary>${other.map(card).join("")}</details>` : ""}</section>`;
+}
+
+function renderNoticeForm() {
+  const item = toList(state.academicEvents).find(item => item.id === modal.noticeId && item.type === "안내");
+  return `<form class="stack" data-form="notice"><div class="between"><h2 class="section-title">${item ? "공지 수정" : "공지 쓰기"}</h2><button type="button" data-action="closeModal">닫기</button></div>
+    <input type="hidden" name="id" value="${escapeHtml(item?.id || "")}" />
+    <label>제목<input name="title" maxlength="150" value="${escapeHtml(item?.title || "")}" placeholder="예: 추석 연휴 수업 안내" required /></label>
+    <label>내용<textarea name="note" rows="6" placeholder="안내할 내용을 적어주세요." required>${escapeHtml(item?.note || "")}</textarea></label>
+    <div class="grid two"><label>게시 시작<input type="date" name="startDate" value="${item?.startDate || todayIso()}" required /></label><label>게시 종료<input type="date" name="endDate" value="${item?.endDate || addDays(todayIso(), 7)}" required /></label></div>
+    <label>공개 대상<select name="visibility"><option value="전체" ${item?.visibility !== "내부" ? "selected" : ""}>전체</option><option value="내부" ${item?.visibility === "내부" ? "selected" : ""}>직원 전용</option></select></label>
+    <p class="muted small">게시 기간 동안 홈 상단에 표시되며, 학사일정에도 함께 표시됩니다.</p>
+    <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button type="submit" class="primary">${item ? "저장" : "공지 등록"}</button></div></form>`;
+}
+
+async function saveNotice(data) {
+  if (!canAdmin()) return false;
+  if (!data.title?.trim() || !data.note?.trim()) { showMessage("제목과 내용을 입력해주세요."); return false; }
+  if (!data.startDate || !data.endDate || data.endDate < data.startDate) { showMessage("게시 종료일은 시작일 이후로 선택해주세요."); return false; }
+  if (!["전체", "내부"].includes(data.visibility)) return false;
+  const payload = { title: data.title.trim(), note: data.note.trim(), start_date: data.startDate, end_date: data.endDate, type: "안내", visibility: data.visibility };
+  const query = supabase.from("academic_events");
+  const { error } = await (data.id ? query.update(payload).eq("id", data.id).eq("type", "안내") : query.insert(payload));
+  if (error) { showMessage(`공지 저장 실패: ${error.message}`); return false; }
+  await loadAllData();
+}
+
 function renderAcademicEventList() {
   const events = [...toList(state.academicEvents)].sort((a, b) => a.startDate.localeCompare(b.startDate));
   if (!events.length) return `<div class="empty">등록된 학사일정이 없습니다.</div>`;
@@ -1439,7 +1822,7 @@ function renderAcademicEventForm() {
   return `<form class="stack" data-form="academicEvent"><div class="between"><h2 class="section-title">학사일정 등록</h2><button type="button" data-action="closeModal">닫기</button></div>
     <label>일정명 <input name="title" placeholder="예: 여름방학, 중간고사 대비" required /></label>
     <div class="grid two"><label>시작일 <input type="date" name="startDate" value="${todayIso()}" required /></label><label>종료일 <input type="date" name="endDate" value="${todayIso()}" required /></label></div>
-    <div class="grid two"><label>구분 <select name="type"><option>휴원</option><option>공휴일</option><option>시험</option><option>특강</option><option>안내</option></select></label><label>공개 <select name="visibility"><option>전체</option><option>내부</option></select></label></div>
+    <div class="grid two"><label>구분 <select name="type"><option value="휴원">휴원 · 학원 방학 · 재량휴업</option><option>공휴일</option><option>시험</option><option>특강</option><option>안내</option></select></label><label>공개 <select name="visibility"><option>전체</option><option>내부</option></select></label></div>
     <label>메모 <textarea name="note" placeholder="필요한 안내만 간단히 입력"></textarea></label>
     <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">등록</button></div></form>`;
 }
@@ -1454,7 +1837,7 @@ function renderTeacherForm(teacher = null) {
         <label>로그인 아이디 <input name="loginId" value="${escapeHtml(teacher?.loginId || "")}" required /></label>
       </div>
       <label>전화번호 <input name="phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(teacher?.phone || "")}" required /></label>
-      <label>권한 <select name="role"><option value="teacher" ${teacher?.role === "teacher" ? "selected" : ""}>강사</option><option value="deputy" ${teacher?.role === "deputy" ? "selected" : ""}>부원장</option><option value="admin" ${teacher?.role === "admin" ? "selected" : ""}>관리자</option></select></label>
+      <label>권한 <select name="role"><option value="teacher" ${teacher?.role === "teacher" ? "selected" : ""}>강사</option><option value="assistant" ${teacher?.role === "assistant" ? "selected" : ""}>조교</option><option value="deputy" ${teacher?.role === "deputy" ? "selected" : ""}>부원장</option><option value="admin" ${teacher?.role === "admin" ? "selected" : ""}>관리자</option></select></label>
       <label>비밀번호${teacher ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${teacher ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
       <div class="muted small">신규 계정의 초기 비밀번호는 1234이며, 최초 로그인 시 비밀번호 변경 화면이 뜹니다.</div>
       <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">${teacher ? "저장" : "등록"}</button></div>
@@ -1526,6 +1909,7 @@ function studentPickerList(activeStudents) {
   const grade = modal.pickerGrade || "";
   const school = modal.pickerSchool || "";
   return activeStudents.filter(student => {
+    if (modal.pickerLevel && !(student.schoolYear || "").startsWith(modal.pickerLevel)) return false;
     if (grade && student.schoolYear !== grade) return false;
     if (school && student.schoolName !== school) return false;
     if (query && !(`${student.name} ${student.loginId}`).includes(query)) return false;
@@ -1544,9 +1928,10 @@ function renderStudentPickerFilters(activeStudents) {
         <input data-action="searchPickerStudent" value="${escapeHtml(query)}" placeholder="학생 이름으로 검색" />
         <button type="button" data-action="searchPickerStudentGo">검색</button>
       </div>
+      <select data-action="filterPickerLevel" aria-label="학교급"><option value="">초·중·고 전체</option>${["초","중","고"].map(v=>`<option value="${v}" ${modal.pickerLevel===v?"selected":""}>${v}등</option>`).join("")}</select>
       <select data-action="filterPickerGrade">
         <option value="">학년 전체</option>
-        ${GRADES.map(g => `<option value="${g}" ${g === grade ? "selected" : ""}>${g}</option>`).join("")}
+        ${GRADES.filter(g=>!modal.pickerLevel||g.startsWith(modal.pickerLevel)).map(g => `<option value="${g}" ${g === grade ? "selected" : ""}>${g}</option>`).join("")}
       </select>
       <select data-action="filterPickerSchool">
         <option value="">학교 전체</option>
@@ -1663,14 +2048,25 @@ function renderEditScheduleForm(schedule = {}) {
 }
 
 function renderBulkMaterialForm() {
+  const draft=modal.materialDraft||{};
   const selectedStudentIds = toList(modal.materialStudentIds);
   const activeStudents = toList(state.students).filter(s => s.active);
   const pickerStudents = studentPickerList(activeStudents);
   return `
     <form class="stack" data-form="bulkMaterial">
       <div class="between"><h2 class="section-title">교재 일괄 설정</h2><button type="button" data-action="closeModal">닫기</button></div>
+      <div class="grid two">
+        <label>교재명 <select name="material"><option value="">선택 안 함</option>${toList(state.materials).map(m => `<option ${draft.material===m?"selected":""}>${escapeHtml(m)}</option>`).join("")}</select></label>
+        <label>교재 직접입력 <input name="materialCustom" value="${escapeHtml(draft.materialCustom||'')}" placeholder="목록에 없으면 입력" /></label>
+      </div>
+      <div class="grid two">
+        <label>교재 학년 <select name="grade" required><option value="">학년 선택</option>${GRADES.map(g => `<option ${draft.grade===g?"selected":""}>${g}</option>`).join("")}</select></label>
+        <label>학기 <select name="term">${TERMS.map(t => `<option ${draft.term===t?"selected":""}>${t}</option>`).join("")}</select></label>
+      </div>
       <label>학생 중복 선택
+        <div class="muted small">학생의 현재 학년으로 검색합니다. 교재 학년과 달라도 선택할 수 있습니다.</div>
         ${renderStudentPickerFilters(activeStudents)}
+        <div class="toolbar"><button type="button" data-action="selectVisibleMaterialStudents">검색 결과 전체 선택</button><button type="button" data-action="clearMaterialStudents">전체 선택 해제</button></div>
         <div class="muted small">${pickerStudents.length}명 표시 중 (전체 ${activeStudents.length}명)</div>
         <div class="student-picker">
           ${pickerStudents.map(student => `<button type="button" class="student-button ${selectedStudentIds.includes(student.id) ? "selected" : ""}" data-action="pickMaterialStudent" data-id="${student.id}">${escapeHtml(student.name)}<span>${escapeHtml(student.schoolYear || student.loginId)}</span></button>`).join("")}
@@ -1678,14 +2074,6 @@ function renderBulkMaterialForm() {
         <input type="hidden" name="studentIds" value="${escapeHtml(JSON.stringify(selectedStudentIds))}" />
         <div class="muted small" data-material-count>${selectedStudentIds.length}명 선택됨</div>
       </label>
-      <div class="grid two">
-        <label>교재명 <select name="material"><option value="">선택 안 함</option>${toList(state.materials).map(m => `<option>${escapeHtml(m)}</option>`).join("")}</select></label>
-        <label>교재 직접입력 <input name="materialCustom" placeholder="목록에 없으면 입력" /></label>
-      </div>
-      <div class="grid two">
-        <label>학년 <select name="grade" required><option value="">학년 선택</option>${GRADES.map(g => `<option>${g}</option>`).join("")}</select></label>
-        <label>학기 <select name="term">${TERMS.map(t => `<option>${t}</option>`).join("")}</select></label>
-      </div>
       <div class="muted small">선택한 학생 전원에게 이 교재·학년·학기가 적용됩니다. 그 학생이 이미 갖고 있던 다른 교재는 그대로 유지되고, 같은 교재가 이미 있으면 학년·학기만 갱신돼요.</div>
       <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">적용</button></div>
     </form>
@@ -1701,7 +2089,9 @@ function handleGlobalClick(event) {
   if (routeButton) {
     event.preventDefault();
     route = routeButton.dataset.route;
+    modal = null;
     render();
+    window.scrollTo({ top: 0, behavior: "auto" });
     return;
   }
 
@@ -1770,6 +2160,19 @@ function handleNonRenderingAction(button) {
     ids = ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id];
     hidden.value = JSON.stringify(ids);
     button.classList.toggle("selected");
+    return true;
+  }
+
+  // 형제/자매 선택은 modal.siblingIds에 저장해둬야, 검색/학년/학교 필터로
+  // 폼 전체가 다시 그려져도(renderStudentPickerFilters 쪽 액션들) 선택이 안 풀립니다.
+  if (action === "toggleFormSibling") {
+    const id = button.dataset.id;
+    const selected = new Set(toList(modal.siblingIds));
+    selected.has(id) ? selected.delete(id) : selected.add(id);
+    modal.siblingIds = Array.from(selected);
+    button.classList.toggle("selected");
+    const form = button.closest("form");
+    form.elements.siblingIds.value = JSON.stringify(modal.siblingIds);
     return true;
   }
 
@@ -1968,9 +2371,22 @@ function handleGlobalSubmit(event) {
 }
 
 function handleGlobalInput(event) {
+  const bulkForm=event.target.closest('form[data-form="bulkMaterial"]');
+  if(bulkForm)modal.materialDraft=Object.fromEntries(new FormData(bulkForm));
+  if(event.target.matches('select[data-action="filterPickerLevel"]')){
+    modal.pickerLevel=event.target.value;modal.pickerGrade="";render();return;
+  }
   const phoneInput = event.target.closest("input[data-phone]");
   if (phoneInput) {
     phoneInput.value = formatPhone(phoneInput.value);
+  }
+
+  const draftCheckbox = event.target.closest("input[data-action='toggleDraftSelect']");
+  if (draftCheckbox) {
+    const id = draftCheckbox.dataset.id;
+    draftCheckbox.checked ? selectedDraftIds.add(id) : selectedDraftIds.delete(id);
+    render();
+    return;
   }
 
   const importFile = event.target.closest("input[data-action='loadBackupFile']");
@@ -2055,6 +2471,12 @@ function handleGlobalInput(event) {
     return;
   }
 
+  const statusSelect = event.target.closest("select[data-action='changeStudentStatus']");
+  if (statusSelect) {
+    changeStudentStatus(statusSelect.dataset.id, statusSelect.value);
+    return;
+  }
+
   const pickerSearch = event.target.closest("input[data-action='searchPickerStudent']");
   if (pickerSearch) {
     if (event.isComposing || event.inputType === "insertCompositionText") return;
@@ -2109,11 +2531,24 @@ async function handleAction(event) {
     return;
   }
   if (action === "closeModal") modal = null;
+  if (action === "toggleWideView") {
+    wideView = !wideView;
+    try { localStorage.setItem("eagle-wide-view", wideView ? "1" : "0"); } catch { /* ignore */ }
+  }
+  if (action === "filterAdminStudentStatusTab") adminStudentStatus = event.currentTarget.dataset.status;
+  if (action === "toggleStudentTrash") trashExpanded = !trashExpanded;
+  if (action === "softDeleteStudent") await softDeleteStudent(idValue);
+  if (action === "restoreStudent") await changeStudentStatus(idValue, "재원");
+  if (action === "deleteStudent") await deleteStudentPermanently(idValue);
   if (action === "searchAdminStudentGo") {
     clearTimeout(searchRenderTimer);
     const input = document.querySelector("input[data-action='searchAdminStudent']");
     adminStudentQuery = (input?.value || "").trim();
   }
+  if (action === "selectVisibleMaterialStudents") {
+    modal.materialStudentIds=[...new Set([...toList(modal.materialStudentIds),...studentPickerList(state.students.filter(s=>s.active)).map(s=>s.id)])];
+  }
+  if (action === "clearMaterialStudents") modal.materialStudentIds=[];
   if (action === "searchPickerStudentGo") {
     clearTimeout(searchRenderTimer);
     const input = document.querySelector("input[data-action='searchPickerStudent']");
@@ -2133,9 +2568,20 @@ async function handleAction(event) {
   }
   if (action === "clearQuickSelection") selectedStudents.clear();
   if (action === "openQuickSelectedRecord" && selectedStudents.size) modal = { type: "bulkRecord", lessonDate: modal.lessonDate || todayIso() };
+  if (action === "pickUnwrittenStudent") {
+    selectedStudents.clear();
+    selectedStudents.add(idValue);
+    modal = { type: "bulkRecord", lessonDate: todayIso() };
+  }
   if (action === "editRecord") modal = { type: "editRecord", recordId: idValue };
-  if (action === "openStudentForm") modal = { type: "studentForm", scheduleSlots: [] };
-  if (action === "editStudent") modal = { type: "editStudentForm", studentId: idValue, scheduleSlots: [] };
+  if (action === "openStudentForm") modal = { type: "studentForm", scheduleSlots: [], siblingIds: [] };
+  if (action === "editStudent") {
+    const target = toList(state.students).find(s => s.id === idValue);
+    const siblingIds = target?.familyId
+      ? toList(state.students).filter(s => s.familyId === target.familyId && s.id !== idValue).map(s => s.id)
+      : [];
+    modal = { type: "editStudentForm", studentId: idValue, scheduleSlots: [], siblingIds };
+  }
   if (action === "viewStudent") modal = { type: "studentDetail", studentId: idValue };
   if (action === "openTeacherForm") modal = { type: "teacherForm" };
   if (action === "editTeacher") modal = { type: "editTeacherForm", teacherId: idValue };
@@ -2149,6 +2595,7 @@ async function handleAction(event) {
     modal = null;
     await importStudentsFromRows(rows);
   }
+  if (action === "openNotice" && canAdmin()) modal = { type: "noticeForm", noticeId: idValue };
   if (action === "openAcademicEventForm") modal = { type: "academicEventForm" };
   if (action === "deleteAcademicEvent") await deleteAcademicEvent(idValue);
   if (action === "moveCalendarMonth") calendarMonth = moveMonth(calendarMonth, Number(event.currentTarget.dataset.delta));
@@ -2194,15 +2641,21 @@ async function handleAction(event) {
   }
   if (action === "confirmRecord") await confirmRecord(idValue);
   if (action === "confirmAssignment") await confirmAssignment(idValue);
+  if (action === "confirmCommentTeacher") await confirmCommentTeacher(idValue);
+  if (action === "confirmCommentAdmin") await confirmCommentAdmin(idValue);
   if (action === "toggleKeyword") await toggleKeyword(idValue, event.currentTarget.dataset.keyword);
+  if (action === "selectSiblingStudent") activeStudentId = idValue;
   if (action === "moveStudentDate") {
-    const records = toList(state.records).filter(r => toList(r.studentIds).includes(session.id) && !r.hidden);
+    const records = toList(state.records).filter(r => toList(r.studentIds).includes(currentStudentId()) && !r.hidden);
     studentViewDate = moveToRecordDate(records, Number(event.currentTarget.dataset.days || 0));
   }
   if (action === "goToday") studentViewDate = todayIso();
   if (action === "toggleRecordHidden") await toggleRecordHidden(idValue);
+  if (action === "publishRecord") await publishRecords([idValue]);
+  if (action === "publishSelectedDrafts") await publishRecords(Array.from(selectedDraftIds));
+  if (action === "selectAllDrafts") selectedDraftIds = new Set(draftRecords().map(r => r.id));
+  if (action === "clearDraftSelection") selectedDraftIds.clear();
   if (action === "resetPassword") await resetPassword(idValue);
-  if (action === "toggleStudent") await toggleActive("students", idValue);
   if (action === "toggleTeacher") await toggleActive("teachers", idValue);
   if (action === "togglePeriod") await toggleActive("periods", idValue);
   if (action === "movePeriodUp") await movePeriod(idValue, -1);
@@ -2370,8 +2823,11 @@ async function handleForm(form) {
   else if (form.dataset.form === "schedule") result = await addSchedule(form);
   else if (form.dataset.form === "scheduleEdit") result = await updateSchedule(form);
   else if (form.dataset.form === "bulkMaterial") result = await applyBulkMaterial(data);
+  else if (form.dataset.form === "notice") result = await saveNotice(data);
   else if (form.dataset.form === "academicEvent") result = await addAcademicEvent(data);
   else if (form.dataset.form === "changePassword") result = await changePassword(data);
+  else if (form.dataset.form === "addComment") result = await addComment(form, data);
+  else if (form.dataset.form === "quickStudent") result = await addStudentQuick(data);
   if (result === false) return;
   modal = null;
   render();
@@ -2481,6 +2937,30 @@ function readStudentScheduleForm(form) {
   return { slots, teacherIds };
 }
 
+function readSiblingIds(form) {
+  try { return JSON.parse(new FormData(form).get("siblingIds") || "[]"); } catch { return []; }
+}
+
+// 형제/자매 계정을 서로 연결합니다. 이미 다른 형제와 묶여 있던 학생이 섞여
+// 있으면 새로 만들지 않고 그 family_id를 그대로 재사용해서 기존 연결을
+// 끊지 않습니다. 형제를 하나도 안 골랐으면 이 학생만 그룹에서 빠지고,
+// 나머지 형제들끼리의 연결은 그대로 둡니다.
+async function applyFamilySiblingLinks(studentId, siblingIds) {
+  const uniqueSiblingIds = [...new Set(toList(siblingIds))].filter(id => id && id !== studentId);
+  if (!uniqueSiblingIds.length) {
+    const { error } = await supabase.from("students").update({ family_id: null }).eq("id", studentId);
+    if (error) showMessage(`형제/자매 연결 해제 실패: ${error.message}`);
+    return;
+  }
+  const groupIds = [studentId, ...uniqueSiblingIds];
+  const existingFamilyId = groupIds
+    .map(id => toList(state.students).find(s => s.id === id)?.familyId)
+    .find(Boolean);
+  const familyId = existingFamilyId || crypto.randomUUID();
+  const { error } = await supabase.from("students").update({ family_id: familyId }).in("id", groupIds);
+  if (error) showMessage(`형제/자매 연결 실패: ${error.message}`);
+}
+
 function readStudentPlans(form) {
   const plans = [];
   let missingGrade = false;
@@ -2533,6 +3013,24 @@ function validateStudentPhones(data) {
   return { parentPhone: parentPhoneRaw, studentPhone };
 }
 
+// 이름(+학년)만으로 바로 학생 계정을 만듭니다. 시간표/교재/형제 연결/연락처는
+// 비워두고, 나중에 "수정"에서 채우면 됩니다. 초기 비밀번호는 1234.
+async function addStudentQuick(data) {
+  const name = (data.name || "").trim();
+  if (!name) { showMessage("이름을 입력해주세요."); return false; }
+  const base = studentLoginIdBase(name, "");
+  let loginId = base;
+  let count = 2;
+  while (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
+    loginId = `${base}-${count++}`;
+  }
+  const { error } = await invokeAdmin("admin-create-user", {
+    role: "student", name, loginId, schoolYear: data.schoolYear?.trim() || "", studyPlans: []
+  });
+  if (error) { showMessage(`빠른 등록 실패: ${error}`); return false; }
+  await loadAllData();
+}
+
 async function addStudent(form, data) {
   const scheduleData = readStudentScheduleForm(form);
   if (!scheduleData) return false;
@@ -2541,6 +3039,14 @@ async function addStudent(form, data) {
   const phones = validateStudentPhones(data);
   if (!phones) return false;
   const base = studentLoginIdBase(data.name.trim(), phones.parentPhone);
+  // 휴원/퇴원 처리된 학생과 이름·학부모전화가 같으면 새 계정을 또 만들지 않고
+  // 그 학생을 재원으로 되돌리도록 안내합니다. 그래야 예전 학습기록이 새
+  // 계정과 분리되지 않고 그대로 이어집니다.
+  const rejoiningStudent = toList(state.students).find(s => s.status !== "재원" && studentLoginIdBase(s.name, s.parentPhone) === base);
+  if (rejoiningStudent) {
+    showMessage(`이름·학부모전화가 같은 "${rejoiningStudent.status}" 상태 학생이 이미 있어요(${rejoiningStudent.name}). 새로 등록하면 예전 학습기록이 분리되니, 학생 목록에서 이 학생의 상태를 "재원"으로 바꿔서 재등록해주세요.`);
+    return false;
+  }
   let loginId = data.loginId?.trim() || base;
   let count = 2;
   while (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
@@ -2556,6 +3062,7 @@ async function addStudent(form, data) {
   });
   if (error) { showMessage(`학생 등록 실패: ${error}`); return false; }
   await syncStudentSchedules(created.id, scheduleData);
+  await applyFamilySiblingLinks(created.id, readSiblingIds(form));
   await loadAllData();
 }
 
@@ -2591,6 +3098,7 @@ async function updateStudent(form, data) {
     if (pwError) { showMessage(`비밀번호 변경 실패: ${pwError}`); return false; }
   }
   await syncStudentSchedules(student.id, scheduleData);
+  await applyFamilySiblingLinks(student.id, readSiblingIds(form));
   await loadAllData();
 }
 
@@ -2808,21 +3316,25 @@ async function changePassword(data) {
 async function confirmRecord(recordId) {
   const record = toList(state.records).find(r => r.id === recordId);
   if (!record) return;
+  const studentId = currentStudentId();
   const keywords = keywordList(record);
-  const existing = getConfirmation(recordId, session.id);
+  const existing = getConfirmation(recordId, studentId);
   const checked = toList(existing?.keywords);
   if (keywords.length && !keywords.every(keyword => checked.includes(keyword))) return;
   const { error } = await supabase.from("record_confirmations").upsert({
-    record_id: recordId, student_id: session.id, version: record.version,
+    record_id: recordId, student_id: studentId, version: record.version,
     confirmed_at: new Date().toISOString()
   }, { onConflict: "record_id,student_id" });
   if (error) { showMessage(`확인 처리 실패: ${error.message}`); return; }
   await loadAllData();
 }
 
+// 형제/자매 화면을 보고 있을 때는 그 형제/자매 몫으로 토글해야 하므로
+// 대상 학생 id를 함께 넘깁니다(기본은 로그인한 본인). 서버 쪽 RPC가
+// 본인이거나 같은 family_id의 형제/자매일 때만 허용합니다.
 async function toggleKeyword(recordId, keyword) {
   const { error } = await supabase.rpc("toggle_confirmation_keyword", {
-    p_record_id: recordId, p_keyword: keyword
+    p_record_id: recordId, p_keyword: keyword, p_student_id: currentStudentId()
   });
   if (error) { showMessage(`처리 실패: ${error.message}`); return; }
   await loadAllData();
@@ -2830,15 +3342,54 @@ async function toggleKeyword(recordId, keyword) {
 
 async function confirmAssignment(recordId) {
   const record = toList(state.records).find(r => r.id === recordId);
-  const existing = getConfirmation(recordId, session.id);
+  const studentId = currentStudentId();
+  const existing = getConfirmation(recordId, studentId);
   const { error } = await supabase.from("record_confirmations").upsert({
-    record_id: recordId, student_id: session.id,
+    record_id: recordId, student_id: studentId,
     version: record?.version ?? existing?.version ?? 0,
     assignment_confirmed: true,
     assignment_confirmed_at: new Date().toISOString()
   }, { onConflict: "record_id,student_id" });
   if (error) { showMessage(`처리 실패: ${error.message}`); return; }
   await loadAllData();
+}
+
+// 학습기록에 학부모/학생 또는 강사·원장이 자유롭게 남기는 코멘트를 추가합니다.
+// 학생 화면에서 쓸 땐 studentId 없이 호출되어 currentStudentId()(본인 또는
+// 지금 보고 있는 형제/자매)로 채워지고, 강사/원장 수신함의 답글에서는
+// form의 data-student-id로 정확한 대상 학생을 지정합니다.
+async function addComment(form, data) {
+  const recordId = form.dataset.recordId;
+  const studentId = form.dataset.studentId || currentStudentId();
+  const content = (data.content || "").trim();
+  if (!recordId || !content) return false;
+  const { error } = await supabase.from("record_comments").insert({
+    record_id: recordId, student_id: studentId, author_id: session.id, author_role: session.role, content
+  });
+  if (error) { showMessage(`코멘트 등록 실패: ${error.message}`); return false; }
+  await loadAllData();
+}
+
+// 학부모 코멘트는 강사가 확인하고 원장(관리자/부원장)도 확인해야 "확인 완료"로
+// 바뀝니다 — 둘 중 하나만 확인해서는 수신함 알림이 꺼지지 않습니다.
+async function confirmCommentTeacher(commentId) {
+  if (session.role !== "teacher") return;
+  const { error } = await supabase.from("record_comments")
+    .update({ teacher_confirmed_at: new Date().toISOString(), teacher_confirmed_by: session.id })
+    .eq("id", commentId);
+  if (error) { showMessage(`처리 실패: ${error.message}`); return; }
+  await loadAllData();
+  render();
+}
+
+async function confirmCommentAdmin(commentId) {
+  if (!canAdmin()) return;
+  const { error } = await supabase.from("record_comments")
+    .update({ admin_confirmed_at: new Date().toISOString(), admin_confirmed_by: session.id })
+    .eq("id", commentId);
+  if (error) { showMessage(`처리 실패: ${error.message}`); return; }
+  await loadAllData();
+  render();
 }
 
 async function toggleRecordHidden(recordId) {
@@ -2853,12 +3404,75 @@ async function toggleRecordHidden(recordId) {
   await loadAllData();
 }
 
+// 강사가 임시저장한 기록을 발행합니다(관리자/부원장만). 한 건 또는 여러 건을
+// 한꺼번에 넘길 수 있습니다(임시저장 목록의 "발행"/"선택 발행").
+async function publishRecords(recordIds) {
+  if (!canAdmin() || !recordIds.length) return;
+  const { error } = await supabase.from("lesson_records").update({ is_draft: false }).in("id", recordIds);
+  if (error) { showMessage(`발행 실패: ${error.message}`); return; }
+  selectedDraftIds.clear();
+  await loadAllData();
+  render();
+}
+
 async function resetPassword(userId) {
   if (!canAdmin()) return;
   const { error } = await invokeAdmin("admin-reset-password", { userId, newPassword: "1234" });
   if (error) { showMessage(`비밀번호 초기화 실패: ${error}`); return; }
   await loadAllData();
   showMessage("비밀번호가 1234로 초기화되었습니다.");
+}
+
+// 재원/휴원/퇴원 상태를 바꿉니다. 재원이 아니면 profiles.active도 꺼서
+// 로그인은 막지만, 학생 행과 학습기록은 그대로 남아있으니 나중에 다시
+// "재원"으로 되돌리면(재등록) 기존 기록이 그대로 이어집니다.
+async function changeStudentStatus(studentId, status) {
+  if (!canAdmin()) return;
+  if (!STUDENT_STATUSES.includes(status)) return;
+  const active = status === "재원";
+  const { error: profileError } = await supabase.from("profiles").update({ active }).eq("id", studentId);
+  if (profileError) { showMessage(`상태 변경 실패: ${profileError.message}`); return; }
+  const { error: studentError } = await supabase.from("students").update({ status }).eq("id", studentId);
+  if (studentError) { showMessage(`상태 변경 실패: ${studentError.message}`); return; }
+  await loadAllData();
+  render();
+}
+
+// 학생 표에서 "삭제"를 누르면 여기로 옵니다. 계정을 진짜로 지우지 않고 상태만
+// "삭제"로 바꿔서 목록/탭에서 안 보이게 합니다(휴지통으로 이동). 학습기록·
+// 시간표·확인내역은 그대로 남고, 휴지통에서 "복구"를 누르면 재원으로 바로
+// 돌아옵니다. 실수로 지웠을 때를 위한 안전장치입니다.
+async function softDeleteStudent(studentId) {
+  if (!canAdmin()) return;
+  const student = toList(state.students).find(s => s.id === studentId);
+  if (!student) return;
+  const confirmed = window.confirm(
+    `${student.name} 학생을 목록에서 삭제합니다.\n학습기록은 지워지지 않고, 관리 화면의 "삭제한 학생" 휴지통에서 언제든 복구할 수 있습니다.\n\n삭제할까요?`
+  );
+  if (!confirmed) return;
+  const { error: profileError } = await supabase.from("profiles").update({ active: false }).eq("id", studentId);
+  if (profileError) { showMessage(`삭제 실패: ${profileError.message}`); return; }
+  const { error: studentError } = await supabase.from("students").update({ status: DELETED_STATUS }).eq("id", studentId);
+  if (studentError) { showMessage(`삭제 실패: ${studentError.message}`); return; }
+  await loadAllData();
+  render();
+}
+
+// 휴지통 안의 "완전 삭제"에서만 호출됩니다. 계정과 학습기록·시간표·확인내역까지
+// 전부 영구 삭제합니다(되돌릴 수 없음) — 일반적인 경우엔 위의 softDeleteStudent
+// (휴지통행)만으로 충분하니, 이 함수는 정말 완전히 지우고 싶을 때만 쓰세요.
+async function deleteStudentPermanently(studentId) {
+  if (!canAdmin()) return;
+  const student = toList(state.students).find(s => s.id === studentId);
+  if (!student) return;
+  const confirmed = window.confirm(
+    `${student.name} 학생을 휴지통에서 완전히 삭제합니다.\n학습기록·시간표·확인내역까지 전부 영구히 사라지고 되돌릴 수 없습니다.\n\n정말 완전히 삭제할까요?`
+  );
+  if (!confirmed) return;
+  const { error } = await invokeAdmin("admin-delete-user", { userId: studentId });
+  if (error) { showMessage(`삭제 실패: ${error}`); return; }
+  await loadAllData();
+  render();
 }
 
 async function toggleActive(collection, itemId) {
@@ -2906,4 +3520,5 @@ async function init() {
   render();
 }
 
+const academy = createAcademy({ db: supabase, context: () => ({session,state,route}), refresh: render, notices: renderHomeNotices, holiday: holidayOnDate, escape: escapeHtml });
 init();

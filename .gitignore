@@ -3,3 +3,7 @@
 student-import-ready.xlsx
 student-import-retry*.xlsx
 student-import-test*.xlsx
+
+node_modules/
+.env*
+!.env.example
