@@ -1777,7 +1777,7 @@ function renderStudentForm(student = null) {
         <label>학부모 성함 <span class="muted small">선택사항</span><input name="parentName" value="${escapeHtml(student?.parentName || "")}" /></label>
       </div>
       ${siblingPickerHtml(student?.id || "")}
-      <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리로 자동 생성 (그래도 겹치면 -2, -3...)" /></label>
+      <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름으로 생성 · 지정 동명이인은 학년 숫자 추가" /></label>
       <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" minlength="6" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 123456로 자동 생성"}" /></label>
       <section class="panel stack curriculum-setup">
         <div><strong>학습 교재와 교육과정</strong><div class="muted small">교재마다 실제로 공부하는 학년과 학기를 따로 지정합니다. 같은 교재를 학기만 다르게 여러 번 추가할 수 있고, 개수 제한도 없습니다.</div></div>
@@ -2797,8 +2797,7 @@ function renderStudentImportModal() {
 }
 
 async function importStudentsFromRows(rows) {
-  // 같은 파일 안에 이름이 겹치는 학생이 있어도 안전하게 -2, -3을 붙이려고,
-  // 매번 서버에 다시 물어보지 않고 이번 배치 안에서 쓴 아이디를 직접 추적합니다.
+  // 임의 숫자를 붙이지 않고, 이번 가져오기 안에서도 아이디 중복을 안내합니다.
   const usedLoginIds = new Set([
     ...toList(state.students).map(s => s.loginId),
     ...toList(state.teachers).map(t => t.loginId)
@@ -2806,11 +2805,11 @@ async function importStudentsFromRows(rows) {
   let success = 0;
   const failures = [];
   for (const row of rows) {
-    const base = studentLoginIdBase(row.name, row.birthday4);
+    const base = studentLoginIdBase(row.name, row.schoolYear);
     let loginId = row.loginId || base;
-    let count = 2;
-    while (usedLoginIds.has(loginId)) {
-      loginId = `${base}-${count++}`;
+    if (usedLoginIds.has(loginId)) {
+      failures.push(`${row.name}: 아이디 중복 — 학년 또는 로그인 아이디를 확인해주세요.`);
+      continue;
     }
     usedLoginIds.add(loginId);
     const { error } = await invokeAdmin("admin-create-user", {
@@ -3018,12 +3017,14 @@ async function syncStudentSchedules(studentId, scheduleData) {
   }
 }
 
-// 학년이 바뀌어도 아이디가 안 바뀌고, 모든 학생에게 일관되게 적용되도록
-// "이름+학부모휴대폰 뒤 4자리"를 기본값으로 씁니다. 생일은 모르는 학생이 있지만
-// 학부모휴대폰은 필수 입력이라 항상 값이 있어요 (동명이인이 많아서 이름만 쓰면 겹치기 쉬워요).
-function studentLoginIdBase(name, parentPhone) {
-  const tail = phoneTail(parentPhone || "");
-  return tail ? `${name}${tail}` : name;
+// 기본 아이디는 이름. 지정된 동명이인은 초1~고3을 1~12로 구분합니다.
+function studentLoginIdBase(name, schoolYear) {
+  const cleanName = name.trim();
+  const grade = (schoolYear || "").match(/^(초|중|고)([1-6])$/);
+  if (["김하준", "김민준", "이다연"].includes(cleanName) && grade) {
+    return `${cleanName}${Number(grade[2]) + ({ 초: 0, 중: 6, 고: 9 })[grade[1]]}`;
+  }
+  return cleanName;
 }
 
 function validateStudentPhones(data) {
@@ -3045,11 +3046,11 @@ function validateStudentPhones(data) {
 async function addStudentQuick(data) {
   const name = (data.name || "").trim();
   if (!name) { showMessage("이름을 입력해주세요."); return false; }
-  const base = studentLoginIdBase(name, "");
+  const base = studentLoginIdBase(name, data.schoolYear);
   let loginId = base;
-  let count = 2;
-  while (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
-    loginId = `${base}-${count++}`;
+  if (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
+    showMessage("같은 아이디가 있습니다. 학생 등록에서 학년을 확인하거나 구분할 아이디를 입력해주세요.");
+    return false;
   }
   const { error } = await invokeAdmin("admin-create-user", {
     role: "student", name, loginId, schoolYear: data.schoolYear?.trim() || "", studyPlans: []
@@ -3065,19 +3066,19 @@ async function addStudent(form, data) {
   if (!studyPlans) return false;
   const phones = validateStudentPhones(data);
   if (!phones) return false;
-  const base = studentLoginIdBase(data.name.trim(), phones.parentPhone);
+  const base = studentLoginIdBase(data.name.trim(), data.schoolYear);
   // 휴원/퇴원 처리된 학생과 이름·학부모전화가 같으면 새 계정을 또 만들지 않고
   // 그 학생을 재원으로 되돌리도록 안내합니다. 그래야 예전 학습기록이 새
   // 계정과 분리되지 않고 그대로 이어집니다.
-  const rejoiningStudent = toList(state.students).find(s => s.status !== "재원" && studentLoginIdBase(s.name, s.parentPhone) === base);
+  const rejoiningStudent = toList(state.students).find(s => s.status !== "재원" && s.name === data.name.trim() && phones.parentPhone && s.parentPhone === phones.parentPhone);
   if (rejoiningStudent) {
     showMessage(`이름·학부모전화가 같은 "${rejoiningStudent.status}" 상태 학생이 이미 있어요(${rejoiningStudent.name}). 새로 등록하면 예전 학습기록이 분리되니, 학생 목록에서 이 학생의 상태를 "재원"으로 바꿔서 재등록해주세요.`);
     return false;
   }
   let loginId = data.loginId?.trim() || base;
-  let count = 2;
-  while (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
-    loginId = `${base}-${count++}`;
+  if (toList(state.students).some(s => s.loginId === loginId) || toList(state.teachers).some(t => t.loginId === loginId)) {
+    showMessage("같은 아이디가 있습니다. 학생 등록에서 학년을 확인하거나 구분할 아이디를 입력해주세요.");
+    return false;
   }
   const { data: created, error } = await invokeAdmin("admin-create-user", {
     role: "student", name: data.name.trim(), loginId,
@@ -3102,7 +3103,7 @@ async function updateStudent(form, data) {
   if (!student) return false;
   const phones = validateStudentPhones(data);
   if (!phones) return false;
-  const loginId = data.loginId?.trim() || studentLoginIdBase(data.name.trim(), phones.parentPhone);
+  const loginId = data.loginId?.trim() || studentLoginIdBase(data.name.trim(), data.schoolYear);
   const duplicate = toList(state.students).some(item => item.id !== student.id && item.loginId === loginId)
     || toList(state.teachers).some(item => item.loginId === loginId);
   if (duplicate) {
