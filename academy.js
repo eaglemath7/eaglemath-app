@@ -16,6 +16,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   let items = [], children = [], points = [], ready = false, problem = '', loadedFor = '', panel = '', busy = false;
   let selected = new Set(), day = date(), period = '', student = '', month = date().slice(0,7), rankMonths=1, rankStart='',rankEnd='', rankings=[];
   let taskArchives=[];
+  let draggingTask=null;
   let reflectionSelection=new Set(), reflectionBatch=[];
   let commentReviews=[],commentNotifications=[],commentSearch='',commentFilter='all',commentsReady=false;
   let draftTimer, loadPromise, batchIds=new Map(), legacyRecords=[], parentAccounts=[], familyLinks=[];
@@ -95,9 +96,18 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const list=taskArchives.filter(a=>a.is_archived).filter(a=>{const i=items.find(i=>i.id===a.task_id);return i&&(shared?i.audience==='staff':i.assignee_id===uid()||i.owner_id===uid());});
     return form('완료 기록','readonly',list.map(a=>{const i=a.snapshot;return `<article class="home-notice"><strong>${h(i.title)}</strong><small>${h(teacher(i.assignee_id))} · 마감 ${h(i.due_at?.slice(0,10)||'없음')}</small><p>완료 ${new Date(i.updated_at).toLocaleString('ko-KR')}<br/>확인·보관 ${new Date(a.archived_at).toLocaleString('ko-KR')} · ${h(teacher(a.archived_by))}</p>${canArchive(i)?btn('완료 칸으로 복원','task-restore',i.id):''}</article>`;}).join('')||empty('보관된 완료 업무가 없습니다.'),'',btn('닫기','close'));
   }
+  function taskArrow(task,action,target,arrow){
+    return `<button type="button" class="ac-task-arrow" data-ac="${action}" data-id="${h(task.id)}" title="${labels[target]}으로 이동" aria-label="${h(task.title)}: ${labels[target]}으로 이동">${arrow}</button>`;
+  }
+  async function moveTask(id,target){
+    const task=items.find(i=>i.id===id&&i.kind==='task');
+    if(!staff()||!task||archivedTask(id)||!['todo','doing','done'].includes(target))throw new Error('이동할 수 없는 업무입니다.');
+    if(task.status===target)return;
+    await save({...task,status:target});
+  }
   function taskBoard(shared=false){
     const list=rows('task').filter(i=>!archivedTask(i.id)).filter(i=>(shared?i.audience==='staff':i.assignee_id===uid()||i.owner_id===uid()) && (i.day<=date()||i.status==='doing')).sort((a,b)=>({high:0,normal:1,low:2}[a.body.priority]??1)-({high:0,normal:1,low:2}[b.body.priority]??1)||(a.due_at||'z').localeCompare(b.due_at||'z'));
-    return `<div class="between"><h3>${shared?'함께 할 일':admin()?'원장 할 일':'내가 할 일'}</h3>${btn('완료 기록','task-history',String(shared))}</div>${quickTask(shared)}<div class="ac-board">${['todo','doing','done'].map(st=>`<section><h4>${labels[st]} <span>${list.filter(i=>i.status===st).length}</span></h4>${list.filter(i=>i.status===st).map(i=>`<article class="ac-task"><strong>${h(i.title)}</strong><small>${h(teacher(i.assignee_id))}${i.body.project?' · '+h(i.body.project):''} · ${{high:'높음',normal:'보통',low:'낮음'}[i.body.priority]||'보통'}</small>${i.due_at?`<small class="${i.status!=='done'&&i.due_at<new Date().toISOString()?'ac-overdue':''}">${h(i.due_at.slice(0,10))} 마감</small>`:''}<div>${st!=='todo'?btn('←','task-back',i.id):''}${st!=='done'?btn(st==='todo'?'진행 →':'완료 ✓','task-next',i.id):canArchive(i)?btn('확인·보관','task-archive',i.id):'<small>원장 확인 대기</small>'}</div></article>`).join('')||empty('등록된 업무가 없습니다.')}</section>`).join('')}</div>`;
+    return `<div class="between"><h3>${shared?'함께 할 일':admin()?'원장 할 일':'내가 할 일'}</h3>${btn('완료 기록','task-history',String(shared))}</div>${quickTask(shared)}<div class="ac-board" data-task-board="${shared?'shared':'personal'}">${['todo','doing','done'].map(st=>`<section data-task-status="${st}" aria-label="${labels[st]} 업무 칸"><h4>${labels[st]} <span>${list.filter(i=>i.status===st).length}</span></h4>${list.filter(i=>i.status===st).map(i=>`<article class="ac-task" draggable="true" data-task-id="${h(i.id)}" title="카드를 끌어서 다른 칸으로 옮기세요"><strong>${h(i.title)}</strong><small>${h(teacher(i.assignee_id))}${i.body.project?' · '+h(i.body.project):''} · ${{high:'높음',normal:'보통',low:'낮음'}[i.body.priority]||'보통'}</small>${i.due_at?`<small class="${i.status!=='done'&&i.due_at<new Date().toISOString()?'ac-overdue':''}">${h(i.due_at.slice(0,10))} 마감</small>`:''}<div>${st!=='todo'?taskArrow(i,'task-back',st==='done'?'doing':'todo','←'):''}${st!=='done'?taskArrow(i,'task-next',st==='todo'?'doing':'done','→'):canArchive(i)?btn('확인·보관','task-archive',i.id):'<small>원장 확인 대기</small>'}</div></article>`).join('')||empty('등록된 업무가 없습니다.')}</section>`).join('')}</div>`;
   }
   function calendar(){
     const [y,m]=month.split('-').map(Number);const start=new Date(y,m-1,1).getDay();const count=new Date(y,m,0).getDate();
@@ -347,7 +357,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       const mutations=['task-next','task-back','attendance','clinic','claim','resolve','approve-event','ranking','rank-export'];
       if(mutations.includes(a)){
         busy=true;b.disabled=true;
-        if(a.startsWith('task-')){const ss=['todo','doing','done'];await save({...i,status:ss[ss.indexOf(i.status)+(a==='task-next'?1:-1)]});}
+        if(a.startsWith('task-')){const ss=['todo','doing','done'];await moveTask(i.id,ss[ss.indexOf(i.status)+(a==='task-next'?1:-1)]);}
         if(a==='attendance'){const [sid,st]=id.split(':');const old=rows('attendance').find(r=>r.student_id===sid&&r.day===day&&r.body.period===period);await save({...old,kind:'attendance',student_id:sid,day,status:st,body:{...old?.body,period}});}
         if(a==='clinic')await save({...i,body:{...i.body,clinic:true}});
         if(a==='claim')await save({...i,assignee_id:uid(),status:'answering'});
@@ -484,6 +494,36 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       panel='';batchIds.clear();await load();refresh();
     }catch(err){status.textContent=err.message||String(err);f.querySelectorAll('button').forEach(b=>b.disabled=false);}finally{busy=false;}
   }
+  function clearTaskDrag(){
+    draggingTask=null;
+    document.querySelectorAll('.ac-task-dragging,.ac-task-drop-target').forEach(el=>el.classList.remove('ac-task-dragging','ac-task-drop-target'));
+  }
+  document.addEventListener('dragstart',e=>{
+    const card=e.target.closest('[data-task-id]');if(!card)return;
+    if(busy||!staff()||e.target.closest('button,input,select,textarea,a')){e.preventDefault();return;}
+    draggingTask={id:card.dataset.taskId,board:card.closest('[data-task-board]')};
+    e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',card.dataset.taskId);
+    card.classList.add('ac-task-dragging');
+  });
+  document.addEventListener('dragover',e=>{
+    const column=e.target.closest('[data-task-status]');
+    if(!draggingTask||busy||!column||column.closest('[data-task-board]')!==draggingTask.board)return;
+    e.preventDefault();e.dataTransfer.dropEffect='move';
+    document.querySelectorAll('.ac-task-drop-target').forEach(el=>{if(el!==column)el.classList.remove('ac-task-drop-target');});
+    column.classList.add('ac-task-drop-target');
+  });
+  document.addEventListener('dragleave',e=>{
+    const column=e.target.closest('[data-task-status]');
+    if(column&&!column.contains(e.relatedTarget))column.classList.remove('ac-task-drop-target');
+  });
+  document.addEventListener('drop',async e=>{
+    const column=e.target.closest('[data-task-status]');
+    if(!draggingTask||busy||!column||column.closest('[data-task-board]')!==draggingTask.board)return;
+    e.preventDefault();const id=draggingTask.id,target=column.dataset.taskStatus;
+    clearTaskDrag();busy=true;
+    try{await moveTask(id,target);refresh();}catch(err){alert('업무 이동 실패: '+(err.message||String(err)));refresh();}finally{busy=false;}
+  });
+  document.addEventListener('dragend',clearTaskDrag);
   document.addEventListener('click',click,true);
   document.addEventListener('submit',submit,true);
   for(const event of ['input','change'])document.addEventListener(event,e=>{
@@ -507,6 +547,6 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const f=e.target.closest('[data-ac-form="reflection"]');if(!f)return;clearTimeout(draftTimer);draftTimer=setTimeout(()=>{try{localStorage.setItem(draftKey('reflection'),JSON.stringify(Object.fromEntries(new FormData(f))));f.querySelector('.ac-form-status').textContent='이 기기에 임시저장됨 · 제출 버튼을 눌러 선생님께 보내주세요.';}catch{f.querySelector('.ac-form-status').textContent='임시저장하지 못했습니다. 임시저장 버튼을 눌러주세요.';}},500);
   });
   // Refresh without interrupting forms or selecting students.
-  setInterval(()=>{if(uid()&&document.visibilityState==='visible'&&!panel&&!busy&&!selected.size&&!document.activeElement?.closest('.ac-quick-task')&&!document.querySelector('[data-ac-form="school-scores"]'))load().then(refresh);},30000);
-  return {render,load,reset(){commentReviews=[];commentNotifications=[];commentsReady=false;addedGrades.clear();items=[];children=[];points=[];loadedFor='';panel='';selected.clear();reflectionSelection.clear();reflectionBatch=[];student='';}};
+  setInterval(()=>{if(uid()&&document.visibilityState==='visible'&&!panel&&!busy&&!draggingTask&&!selected.size&&!document.activeElement?.closest('.ac-quick-task')&&!document.querySelector('[data-ac-form="school-scores"]'))load().then(refresh);},30000);
+  return {render,load,reset(){clearTaskDrag();commentReviews=[];commentNotifications=[];commentsReady=false;addedGrades.clear();items=[];children=[];points=[];loadedFor='';panel='';selected.clear();reflectionSelection.clear();reflectionBatch=[];student='';}};
 }
