@@ -15,3 +15,9 @@ async function saveCase({ids=['a','b'],end='13:00',admin=true,error=null}={}){
 const r=await saveCase();assert.equal(r.payload.visibility,'내부');assert.equal(r.payload.start_date,r.payload.end_date);assert.equal(r.result.month,'2026-09');assert.deepEqual(makeupDetails({type:r.payload.type,note:r.payload.note}).studentIds,['a','b']);
 for(const opts of [{ids:[]},{ids:['missing']},{end:'09:00'},{admin:false},{error:Error('server')}])await assert.rejects(()=>saveCase(opts));
 console.log('PASS: grade grouping, name linkage, duplicate selection, internal calendar-only persistence, time/student validation and server failures');
+const {mergeMakeupSlots}=await import('../academy.js');
+const event=(id,start,end,ids,day='2026-09-20')=>({id,type:'보충',title:'보충',startDate:day,note:JSON.stringify({version:1,start,end,studentIds:ids})});
+const entries=[event('1','10:00','13:00',['a']),event('2','10:00','13:00',['b','a']),event('3','14:00','17:00',['c']),event('4','10:00','12:00',['c']),event('5','10:00','13:00',['c'],'2026-09-21')];
+const snapshot=JSON.stringify(entries),merged=mergeMakeupSlots(entries,'2026-09-20');
+assert.equal(merged.length,3);const slot=merged.find(x=>makeupDetails(x).end==='13:00');assert.deepEqual(makeupDetails(slot).studentIds,['a','b']);assert.deepEqual(slot.sources.map(x=>x.id),['1','2']);assert.equal(slot.title,'보충');assert.equal(JSON.stringify(entries),snapshot);assert.equal(mergeMakeupSlots([{...entries[0],type:'보충취소'}],'2026-09-20').length,0);
+console.log('PASS: same-date exact-time grouping, deduplicated IDs, distinct end times, chronological order and original records preserved');
