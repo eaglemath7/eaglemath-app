@@ -1,3 +1,13 @@
+export function makeupDetails(event) {
+  if(event?.type!=='보충')return null;
+  try { const b=JSON.parse(event.note||'null');return b?.version===1&&Array.isArray(b.studentIds)&&/^\d{2}:\d{2}$/.test(b.start)&&/^\d{2}:\d{2}$/.test(b.end)?b:null; } catch { return null; }
+}
+export function makeupGroups(ids,students) {
+  const order=['초1','초2','초3','초4','초5','초6','중1','중2','중3','고1','고2','고3'];
+  const groups=new Map();
+  for(const id of new Set(ids)){const st=students.find(s=>s.id===id);const grade=st?.schoolYear||'학년 미입력';if(!groups.has(grade))groups.set(grade,[]);groups.get(grade).push(st?.name||'삭제된 학생');}
+  return [...groups].sort(([a],[b])=>(order.indexOf(a)<0?99:order.indexOf(a))-(order.indexOf(b)<0?99:order.indexOf(b))).map(([grade,names])=>({grade,names:names.sort((a,b)=>a.localeCompare(b,'ko'))}));
+}
 export function findLessonReflection(items, studentId, day, period, sourceId='') {
   const list=items.filter(r=>r.kind==='reflection'&&r.student_id===studentId&&r.day===day&&r.status!=='draft');
   const normalize=p=>String(p||'').replace(/[^0-9가-힣a-z]/gi,'');
@@ -57,6 +67,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(ch.error||pt.error)throw new Error('가족·점수 정보를 불러오지 못했습니다.');
       children=ch.data||[];points=pt.data||[];
       if(staff()){
+        const ev=await readAll('academic_events','start_date');if(ev.error)throw new Error('캘린더 일정을 불러오지 못했습니다.');
+        c().state.academicEvents=ev.data.map(r=>({id:r.id,title:r.title,startDate:r.start_date,endDate:r.end_date,type:r.type,visibility:r.visibility,note:r.note||''}));
         const archives=await readAll('academy_task_archives','archived_at');if(archives.error)throw new Error('완료 업무 보관 기능의 서버 연결을 확인해주세요.');taskArchives=archives.data||[];
         const [reviews,notifications]=await Promise.all([readAll('academy_comment_reviews','updated_at'),admin()?readAll('academy_comment_notifications','created_at'):Promise.resolve({data:[]})]);
         commentsReady=!reviews.error&&!notifications.error;commentReviews=reviews.data||[];commentNotifications=notifications.data||[];
@@ -109,12 +121,24 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const list=rows('task').filter(i=>!archivedTask(i.id)).filter(i=>(shared?i.audience==='staff':i.assignee_id===uid()||i.owner_id===uid()) && (i.day<=date()||i.status==='doing')).sort((a,b)=>({high:0,normal:1,low:2}[a.body.priority]??1)-({high:0,normal:1,low:2}[b.body.priority]??1)||(a.due_at||'z').localeCompare(b.due_at||'z'));
     return `<div class="between"><h3>${shared?'함께 할 일':admin()?'원장 할 일':'내가 할 일'}</h3>${btn('완료 기록','task-history',String(shared))}</div>${quickTask(shared)}<div class="ac-board" data-task-board="${shared?'shared':'personal'}">${['todo','doing','done'].map(st=>`<section data-task-status="${st}" aria-label="${labels[st]} 업무 칸"><h4>${labels[st]} <span>${list.filter(i=>i.status===st).length}</span></h4>${list.filter(i=>i.status===st).map(i=>`<article class="ac-task" draggable="true" data-task-id="${h(i.id)}" title="카드를 끌어서 다른 칸으로 옮기세요"><strong>${h(i.title)}</strong><small>${h(teacher(i.assignee_id))}${i.body.project?' · '+h(i.body.project):''} · ${{high:'높음',normal:'보통',low:'낮음'}[i.body.priority]||'보통'}</small>${i.due_at?`<small class="${i.status!=='done'&&i.due_at<new Date().toISOString()?'ac-overdue':''}">${h(i.due_at.slice(0,10))} 마감</small>`:''}<div>${st!=='todo'?taskArrow(i,'task-back',st==='done'?'doing':'todo','←'):''}${st!=='done'?taskArrow(i,'task-next',st==='todo'?'doing':'done','→'):canArchive(i)?btn('확인·보관','task-archive',i.id):'<small>원장 확인 대기</small>'}</div></article>`).join('')||empty('등록된 업무가 없습니다.')}</section>`).join('')}</div>`;
   }
+  function makeupOn(d){return c().state.academicEvents.filter(e=>e.startDate===d&&makeupDetails(e)).sort((a,b)=>makeupDetails(a).start.localeCompare(makeupDetails(b).start));}
+  function makeupCopy(event){const b=makeupDetails(event);return `<span class="ac-makeup-time">${h(b.start)}–${h(b.end)} ${h(event.title)}</span>`+makeupGroups(b.studentIds,c().state.students).map(g=>`<span class="ac-makeup-names"><b>${h(g.grade)}</b> ${g.names.map(h).join(' · ')}</span>`).join('');}
+  function makeupForm(event){
+    const b=makeupDetails(event)||{start:'10:00',end:'13:00',studentIds:[]};
+    const students=allStudents();const grades=[...new Set(students.map(s=>s.schoolYear).filter(Boolean))];
+    return form(event?'보충 일정 수정':'보충 일정 등록','makeup',input('날짜','day',event?.startDate||day,'date')+input('표시 이름','title',event?.title||'보충')+`<div class="toolbar">${['10:00|13:00','14:00|17:00','18:00|21:00'].map(t=>btn(t.replace('|','–'),'makeup-preset',t)).join('')}</div><div class="grid two">`+input('시작','start',b.start,'time')+input('종료','end',b.end,'time')+`</div><div class="toolbar"><input data-makeup-search placeholder="학생 이름 검색" aria-label="보충 학생 이름 검색"/><select data-makeup-grade aria-label="보충 학생 학년 필터">${opts([['','학년 전체'],...grades.map(g=>[g,g])],'')}</select>${btn('현재 목록 전체 선택','makeup-select')}${btn('선택 해제','makeup-clear')}</div><p data-makeup-count>${b.studentIds.length}명 선택</p><div class="ac-makeup-picker">${students.map(st=>`<label data-makeup-option data-name="${h(st.name)}" data-grade="${h(st.schoolYear||'')}"><input type="checkbox" name="makeupStudent" value="${h(st.id)}" ${b.studentIds.includes(st.id)?'checked':''}/><span>${h(st.name)} <small>${h(st.schoolYear||'')}</small></span></label>`).join('')}</div>`,event?.id||'');
+  }
+  function updateMakeupPicker(f){
+    const q=f.querySelector('[data-makeup-search]').value.trim(),grade=f.querySelector('[data-makeup-grade]').value;
+    f.querySelectorAll('[data-makeup-option]').forEach(el=>{el.hidden=!!((q&&!el.dataset.name.includes(q))||(grade&&el.dataset.grade!==grade));});
+    f.querySelector('[data-makeup-count]').textContent=f.querySelectorAll('[name="makeupStudent"]:checked').length+'명 선택';
+  }
   function calendar(){
     const [y,m]=month.split('-').map(Number);const start=new Date(y,m-1,1).getDay();const count=new Date(y,m,0).getDate();
     const due=rows('task').filter(i=>i.status!=='done'&&(admin()||i.assignee_id===uid()||i.owner_id===uid()));
     const events=rows('school_event').filter(i=>i.status==='approved');
-    const entries=d=>[...(holiday(d)?[{t:holiday(d),kind:'공휴일'}]:[]),...due.filter(i=>i.due_at?.slice(0,10)===d).map(i=>({t:i.title,kind:'업무'})),...events.filter(i=>i.day===d).map(i=>({t:i.title,kind:'학교'})),...c().state.academicEvents.filter(i=>i.startDate<=d&&i.endDate>=d).map(i=>({t:i.title,kind:'학원'})),...c().state.students.filter(i=>i.birthday4===d.slice(5).replace('-','')).map(i=>({t:i.name+' 생일',kind:'생일'}))];
-    return `<section class="panel ac-calendar"><div class="between"><h3>일정과 마감일</h3><div class="toolbar">${btn('‹','prev-month')}<strong>${month}</strong>${btn('›','next-month')}</div></div><div class="ac-week">${['일','월','화','수','목','금','토'].map((t,i)=>`<span class="${i===0?'ac-sunday':i===6?'ac-saturday':''}">${t}</span>`).join('')}</div><div class="ac-days">${Array.from({length:Math.ceil((start+count)/7)*7},(_,k)=>{const cell=new Date(y,m-1,1-start+k);const d=`${cell.getFullYear()}-${String(cell.getMonth()+1).padStart(2,'0')}-${String(cell.getDate()).padStart(2,'0')}`,es=entries(d);const closed=c().state.academicEvents.filter(e=>['휴원','학원 방학','재량휴업일'].includes(e.type)&&e.startDate<=d&&e.endDate>=d);const red=cell.getDay()===0||holiday(d)||c().state.academicEvents.some(e=>e.type==='공휴일'&&e.startDate<=d&&e.endDate>=d);return `<button data-ac="day" data-id="${d}" aria-label="${d}" class="${d===day?'selected':''} ${d.slice(0,7)!==month?'ac-outside-month':''} ${red?'ac-sunday':closed.length?'ac-academy-closed':cell.getDay()===6?'ac-saturday':''}"><b>${cell.getDate()}</b>${closed.map(e=>`<small class="ac-closure-label">${h(e.title)}</small>`).join('')}${es.filter(e=>!closed.some(x=>x.title===e.t)).slice(0,2).map(e=>`<small>${e.kind==='생일'?'':h(e.kind)+' · '}${h(e.t)}</small>`).join('')}${es.length>2?`<small>+${es.length-2}개</small>`:''}</button>`}).join('')}</div><div class="ac-day-list"><strong>${day}</strong>${entries(day).map(e=>`<p>${e.kind==='생일'?'':badge(e.kind)+' '}${h(e.t)}</p>`).join('')||empty('등록된 일정이 없습니다.')}</div></section>`;
+    const entries=d=>[...(holiday(d)?[{t:holiday(d),kind:'공휴일'}]:[]),...due.filter(i=>i.due_at?.slice(0,10)===d).map(i=>({t:i.title,kind:'업무'})),...events.filter(i=>i.day===d).map(i=>({t:i.title,kind:'학교'})),...c().state.academicEvents.filter(i=>i.type!=='보충'&&i.type!=='보충취소'&&i.startDate<=d&&i.endDate>=d).map(i=>({t:i.title,kind:'학원'})),...c().state.students.filter(i=>i.birthday4===d.slice(5).replace('-','')).map(i=>({t:i.name+' 생일',kind:'생일'}))];
+    return `<section class="panel ac-calendar"><div class="between"><h3>일정과 마감일</h3><div class="toolbar">${admin()?btn('보충 등록','makeup-new'):''}${btn('‹','prev-month')}<strong>${month}</strong>${btn('›','next-month')}</div></div><div class="ac-week">${['일','월','화','수','목','금','토'].map((t,i)=>`<span class="${i===0?'ac-sunday':i===6?'ac-saturday':''}">${t}</span>`).join('')}</div><div class="ac-days">${Array.from({length:Math.ceil((start+count)/7)*7},(_,k)=>{const cell=new Date(y,m-1,1-start+k);const d=`${cell.getFullYear()}-${String(cell.getMonth()+1).padStart(2,'0')}-${String(cell.getDate()).padStart(2,'0')}`,es=entries(d);const closed=c().state.academicEvents.filter(e=>['휴원','학원 방학','재량휴업일'].includes(e.type)&&e.startDate<=d&&e.endDate>=d);const red=cell.getDay()===0||holiday(d)||c().state.academicEvents.some(e=>e.type==='공휴일'&&e.startDate<=d&&e.endDate>=d);return `<button data-ac="day" data-id="${d}" aria-label="${d}" class="${d===day?'selected':''} ${d.slice(0,7)!==month?'ac-outside-month':''} ${red?'ac-sunday':closed.length?'ac-academy-closed':cell.getDay()===6?'ac-saturday':''}"><b>${cell.getDate()}</b>${closed.map(e=>`<small class="ac-closure-label">${h(e.title)}</small>`).join('')}${es.filter(e=>!closed.some(x=>x.title===e.t)).slice(0,2).map(e=>`<small>${e.kind==='생일'?'':h(e.kind)+' · '}${h(e.t)}</small>`).join('')}${es.length>2?`<small>+${es.length-2}개</small>`:''}${makeupOn(d).map(event=>`<span class="ac-makeup-cell">${makeupCopy(event)}</span>`).join('')}</button>`}).join('')}</div><div class="ac-day-list"><div class="between"><strong>${day}</strong>${admin()?btn('이 날짜에 보충 등록','makeup-new'):''}</div>${makeupOn(day).map(event=>`<div class="ac-makeup-detail">${makeupCopy(event)}${admin()?btn('수정','makeup-edit',event.id)+btn('보충 취소','makeup-cancel',event.id):''}</div>`).join('')}${entries(day).map(e=>`<p>${e.kind==='생일'?'':badge(e.kind)+' '}${h(e.t)}</p>`).join('')||(makeupOn(day).length?'':empty('등록된 일정이 없습니다.'))}</div></section>`;
   }
   function visibleReflections(){
     return rows('reflection').filter(r=>admin()||c().state.schedules.some(s=>s.studentId===r.student_id&&s.teacherIds?.includes(uid())))
@@ -315,6 +339,15 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(a==='families')panel=familiesPanel();
       if(a==='family-edit')panel=familiesPanel(id);
       if(a==='family-unlink')panel=familiesPanel(id,true);
+      if(a==='makeup-new'||a==='makeup-edit'){
+        if(!admin())return;batchIds.clear();panel=makeupForm(a==='makeup-edit'?c().state.academicEvents.find(e=>e.id===id&&e.type==='보충'):null);
+      }
+      if(a==='makeup-preset'){const f=b.closest('form');[f.elements.start.value,f.elements.end.value]=id.split('|');return;}
+      if(a==='makeup-select'||a==='makeup-clear'){const f=b.closest('form');f.querySelectorAll('[data-makeup-option]').forEach(el=>{if(a==='makeup-clear'||!el.hidden)el.querySelector('input').checked=a==='makeup-select';});updateMakeupPicker(f);return;}
+      if(a==='makeup-cancel'){
+        if(!admin())return;const event=c().state.academicEvents.find(e=>e.id===id&&e.type==='보충');if(!event)return;
+        panel=form('보충 취소 확인','makeup-cancel',`<p>${h(event.startDate)} · ${h(event.title)}</p>${makeupCopy(event)}<p>이 보충 일정을 캘린더에서 제외합니다.</p>`,id,'<button type="submit" class="danger">보충 일정 취소</button>');
+      }
       if(a==='school-events')panel=eventsPanel();
       if(a==='school-event')panel=form('학교 일정 올리기','school_event',studentSelect()+input('일정 제목','title')+input('날짜','day',day,'date')+input('학교','school')+input('학년','grade')+input('반','classroom')+select('범위','scope',[['student','개인'],['class','학교 반'],['grade','학교 학년'],['school','학교 전체']],'class')+area('평가 범위·안내','text')+fileInput());
       if(a==='progress')panel=form('과정별 교재·진도','progress',studentSelect(i?.student_id)+input('교재 (판본 포함)','title',i?.title||'')+select('학습 구분','track',[['현행','현행'],['선행','선행'],['복습','복습']],i?.body.track||'현행')+input('과정 (예: 중2, 공통수학1)','course',i?.body.course||'')+input('단원·페이지','unit',i?.body.unit||'')+select('학습 단계','stage',['학습 중','개념 학습','기본 문제','심화 문제','복습','완료'].map(x=>[x,x]),i?.body.stage||'개념 학습')+input('이해도·복습 필요 사항','understanding',i?.body.understanding||''),i?.id||'');
@@ -431,6 +464,21 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       }
       if(kind==='assessment'){if(!d.title.trim())throw new Error('평가명을 입력해주세요.');await save({...old,kind:'assessment',student_id:d.student_id,day:d.day,title:d.title,status:'recorded',body:{...old?.body,...d,score:Number(d.score),total:Number(d.total),first_attempt:d.first_attempt==='on'}});}
       if(kind==='progress')await save({...old,kind:'progress',student_id:d.student_id,title:d.title,day,status:'active',body:d});
+      if(kind==='makeup'){
+        if(!admin())throw new Error('보충 등록은 관리자만 가능합니다.');
+        const ids=[...new Set(new FormData(f).getAll('makeupStudent'))];
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(d.day)||!d.title.trim()||!d.start||!d.end||d.end<=d.start)throw new Error('날짜·수업명과 시작/종료 시간을 확인해주세요.');
+        if(!ids.length||ids.some(id=>!allStudents().some(st=>st.id===id)))throw new Error('학생을 한 명 이상 선택해주세요.');
+        const payload={title:d.title.trim(),start_date:d.day,end_date:d.day,type:'보충',visibility:'내부',note:JSON.stringify({version:1,start:d.start,end:d.end,studentIds:ids})};
+        const query=db.from('academic_events');
+        const result=id?await query.update(payload).eq('id',id).eq('type','보충').select('id'):await query.upsert({...payload,id:requestId('makeup')}).select('id');
+        if(result.error)throw result.error;if(!result.data?.length)throw new Error('일정이 변경되었거나 저장 권한이 없습니다.');
+        day=d.day;month=d.day.slice(0,7);
+      }
+      if(kind==='makeup-cancel'){
+        if(!admin())throw new Error('관리자만 취소할 수 있습니다.');
+        const result=await db.from('academic_events').update({type:'보충취소'}).eq('id',id).eq('type','보충').select('id');if(result.error)throw result.error;if(!result.data?.length)throw new Error('취소할 일정이 없습니다.');
+      }
       if(kind==='school_event')await save({id:requestId('school_event'),kind:'school_event',student_id:d.student_id,title:d.title,day:d.day,status:'submitted',body:{...d,files:await upload(f)}});
       if(kind==='question')await save({id:requestId('question'),kind:'question',student_id:d.student_id,title:d.title,day,status:'open',audience:parent()?'parent':'student',body:{text:d.text,files:await upload(f)}});
       if(kind==='comment-reply'){
@@ -527,6 +575,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   document.addEventListener('click',click,true);
   document.addEventListener('submit',submit,true);
   for(const event of ['input','change'])document.addEventListener(event,e=>{
+    const makeup=e.target.closest('[data-ac-form="makeup"]');if(makeup)updateMakeupPicker(makeup);
     const f=e.target.closest('.ac-quick-task');if(f)taskDrafts[f.dataset.shared]=Object.fromEntries(new FormData(f));
   });
   document.addEventListener('keydown',e=>{

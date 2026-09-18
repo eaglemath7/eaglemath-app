@@ -1,4 +1,4 @@
-import { createAcademy } from "./academy.js?v=22";
+import { createAcademy } from "./academy.js?v=23";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
