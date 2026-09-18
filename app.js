@@ -558,7 +558,7 @@ function renderTopbar() {
         ${canTeacher() && route === 'teacher' ? nav('teacher','강사 수업기록') : ''}
         ${nav('academy_inbox','과제·질문')}${nav('academy_growth','성장기록')}
         ${canTeacher() ? nav('academy_comments','학부모 코멘트') : ''}
-        ${canAdmin() ? nav('admin','관리') : ''}
+        ${canAdmin() ? nav('students','학생정보') + nav('admin','관리') : ''}
         ${session.type === 'student' ? nav('student','알림장') : ''}
         <button class="${wideView ? 'selected' : 'ghost'}" data-action="toggleWideView" aria-pressed="${wideView}">${wideView ? '✓ 넓게 보기 켜짐' : '넓게 보기'}</button>
         <button data-action="logout">나가기</button>
@@ -570,6 +570,7 @@ function renderTopbar() {
 function routeLabel() {
   if (route.startsWith("academy_")) return ({academy_class:"오늘 수업",academy_inbox:"과제·질문",academy_growth:"성장기록",academy_comments:"학부모 코멘트",academy_learning:"오늘의 학습"})[route] || "홈";
   if (route === "home") return "홈";
+  if (route === "students") return "학생 정보 · 로그인 아이디";
   if (route === "admin") return "관리자/부원장 전체 관리";
   if (route === "teacher") return "강사 수업기록";
   return "학생/학부모 알림장";
@@ -722,6 +723,7 @@ function renderCalendarDay() {
 function renderRoute() {
   if (route === "home" || route.startsWith("academy_")) return academy.render(route);
   if (session.role === "parent") return academy.render("academy_learning");
+  if (route === "students" && canAdmin()) return renderStudentDirectory();
   if (route === "admin" && canAdmin()) return renderAdmin();
   if (route === "student") return renderStudent();
   return renderTeacher();
@@ -1103,6 +1105,40 @@ function renderAdminStudentFilters() {
   `;
 }
 
+function renderStudentDirectory() {
+  return `
+        <div class="panel">
+          <h2 class="section-title">학생정보</h2>
+          ${renderQuickStudentForm()}
+          ${renderStudentTrash()}
+          ${renderAdminStudentStatusTabs()}
+          ${renderAdminStudentFilters()}
+          <div class="muted small">${adminFilteredStudents().length}명 표시 중 (전체 ${toList(state.students).length}명)</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
+              <tbody>${adminFilteredStudents().map(s => `
+                <tr>
+                  <td><button type="button" class="link-button" data-action="viewStudent" data-id="${s.id}">${escapeHtml(s.name)}</button> ${s.status === "퇴원" ? `<span class="badge bad">퇴원</span>` : s.status === "휴원" ? `<span class="badge warn">휴원</span>` : ""}</td>
+                  <td>${escapeHtml(s.schoolYear || "-")}</td>
+                  <td>${escapeHtml(s.loginId)}</td>
+                  <td>${escapeHtml(s.parentPhone || "-")}</td>
+                  <td class="toolbar">
+                    <button data-action="editStudent" data-id="${s.id}">수정</button>
+                    <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
+                    <select data-action="changeStudentStatus" data-id="${s.id}">
+                      ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === (s.status || "재원") ? "selected" : ""}>${v}</option>`).join("")}
+                    </select>
+                    <button class="danger" data-action="softDeleteStudent" data-id="${s.id}">삭제</button>
+                  </td>
+                </tr>
+              `).join("")}</tbody>
+            </table>
+          </div>
+        </div>
+  `;
+}
+
 function renderAdmin() {
   const visibleRecords = toList(state.records)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -1135,35 +1171,7 @@ function renderAdmin() {
       ${renderParentCommentInbox()}
       ${renderCalendar()}
       <section class="grid two">
-        <div class="panel">
-          <h2 class="section-title">학생</h2>
-          ${renderQuickStudentForm()}
-          ${renderStudentTrash()}
-          ${renderAdminStudentStatusTabs()}
-          ${renderAdminStudentFilters()}
-          <div class="muted small">${adminFilteredStudents().length}명 표시 중 (전체 ${toList(state.students).length}명)</div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
-              <tbody>${adminFilteredStudents().map(s => `
-                <tr>
-                  <td><button type="button" class="link-button" data-action="viewStudent" data-id="${s.id}">${escapeHtml(s.name)}</button> ${s.status === "퇴원" ? `<span class="badge bad">퇴원</span>` : s.status === "휴원" ? `<span class="badge warn">휴원</span>` : ""}</td>
-                  <td>${escapeHtml(s.schoolYear || "-")}</td>
-                  <td>${escapeHtml(s.loginId)}</td>
-                  <td>${escapeHtml(s.parentPhone || "-")}</td>
-                  <td class="toolbar">
-                    <button data-action="editStudent" data-id="${s.id}">수정</button>
-                    <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
-                    <select data-action="changeStudentStatus" data-id="${s.id}">
-                      ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === (s.status || "재원") ? "selected" : ""}>${v}</option>`).join("")}
-                    </select>
-                    <button class="danger" data-action="softDeleteStudent" data-id="${s.id}">삭제</button>
-                  </td>
-                </tr>
-              `).join("")}</tbody>
-            </table>
-          </div>
-        </div>
+        ${renderStudentDirectory()}
         <div class="panel">
           <h2 class="section-title">강사</h2>
           <div class="table-wrap">
