@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const app=fs.readFileSync('app.js','utf8'), ac=fs.readFileSync('academy.js','utf8');
+const source=app.slice(app.indexOf('const noticeDrafts ='),app.indexOf('function renderNoticeForm()'));
+const storage=new Map(),localStorage={setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k)};
+let session={id:'admin1'};
+const make=()=>new Function('session','localStorage','FormData',source+';return {rememberNoticeDraft,readNoticeDraft};')(session,localStorage,class{constructor(f){return Object.entries(f);}});
+let api=make();const fields={id:'',title:'추석연휴 안내',note:'작성 중인 긴 내용\n둘째 줄',startDate:'2026-09-19',endDate:'2026-09-26',visibility:'전체'};
+api.rememberNoticeDraft({target:{closest:()=>fields}});assert.deepEqual(api.readNoticeDraft(''),fields);api=make();assert.deepEqual(api.readNoticeDraft(''),fields);assert.equal(api.readNoticeDraft('existing'),null);session={id:'admin2'};assert.equal(make().readNoticeDraft(''),null);
+const start=ac.indexOf('  const canAutoRefresh='),end=ac.indexOf('  return {render,load,reset()',start);
+let tick,resolve,refreshes=0,modalOpen=false,panel='';
+const factory=new Function('setInterval','uid','document','c','load','refresh',`let panel='',busy=false,draggingTask=null,selected=new Set(),reflectionSelection=new Set();${ac.slice(start,end)}`);
+factory(fn=>tick=fn,()=>true,{visibilityState:'visible',activeElement:null,querySelector:()=>null},()=>({modalOpen}),()=>new Promise(r=>resolve=r),()=>refreshes++);
+tick();modalOpen=true;resolve();await Promise.resolve();assert.equal(refreshes,0);resolve=null;tick();assert.equal(resolve,null);
+modalOpen=false;tick();resolve();await Promise.resolve();assert.equal(refreshes,1);
+console.log('PASS: notice text/date/audience drafts survive remount, per-account and per-notice isolation, modal blocks polling and in-flight refresh race');

@@ -1,4 +1,4 @@
-import { createAcademy } from "./academy.js?v=21";
+import { createAcademy } from "./academy.js?v=22";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
@@ -526,6 +526,8 @@ function ensureGlobalListeners() {
   document.addEventListener("click", handleGlobalClick);
   document.addEventListener("submit", handleGlobalSubmit);
   document.addEventListener("input", handleGlobalInput);
+  document.addEventListener("input", rememberNoticeDraft);
+  document.addEventListener("change", rememberNoticeDraft);
   listenersReady = true;
 }
 
@@ -1818,16 +1820,34 @@ function renderHomeNotices() {
   return `<section class="panel stack home-notices" aria-label="공지사항"><div class="between"><h2 class="section-title">공지사항</h2>${canAdmin() ? `<button data-action="openNotice">공지 쓰기</button>` : ""}</div>${active.length ? active.map(card).join("") : `<p class="muted">현재 게시 중인 공지가 없습니다.</p>`}${canAdmin() && other.length ? `<details><summary>예정·지난 공지 ${other.length}개</summary>${other.map(card).join("")}</details>` : ""}</section>`;
 }
 
+const noticeDrafts = new Map();
+function noticeDraftKey(id = "") { return `eagle-notice-draft:${session?.id || ""}:${id || "new"}`; }
+function rememberNoticeDraft(event) {
+  const form = event.target.closest('[data-form="notice"]');
+  if (!form || !session) return;
+  const draft = Object.fromEntries(new FormData(form));
+  const key = noticeDraftKey(draft.id);
+  noticeDrafts.set(key, draft);
+  try { localStorage.setItem(key, JSON.stringify(draft)); } catch { /* Keep the in-memory copy. */ }
+}
+function readNoticeDraft(id) {
+  const key = noticeDraftKey(id);
+  if (noticeDrafts.has(key)) return noticeDrafts.get(key);
+  try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; }
+}
+
 function renderNoticeForm() {
-  const item = toList(state.academicEvents).find(item => item.id === modal.noticeId && item.type === "안내");
-  return `<form class="stack" data-form="notice"><div class="between"><h2 class="section-title">${item ? "공지 수정" : "공지 쓰기"}</h2><button type="button" data-action="closeModal">닫기</button></div>
+  const saved = toList(state.academicEvents).find(item => item.id === modal.noticeId && item.type === "안내");
+  const draft = readNoticeDraft(modal.noticeId);
+  const item = draft ? { ...saved, ...draft } : saved;
+  return `<form class="stack" data-form="notice"><div class="between"><h2 class="section-title">${saved ? "공지 수정" : "공지 쓰기"}</h2><button type="button" data-action="closeModal">닫기</button></div>
     <input type="hidden" name="id" value="${escapeHtml(item?.id || "")}" />
     <label>제목<input name="title" maxlength="150" value="${escapeHtml(item?.title || "")}" placeholder="예: 추석 연휴 수업 안내" required /></label>
     <label>내용<textarea name="note" rows="6" placeholder="안내할 내용을 적어주세요." required>${escapeHtml(item?.note || "")}</textarea></label>
     <div class="grid two"><label>게시 시작<input type="date" name="startDate" value="${item?.startDate || todayIso()}" required /></label><label>게시 종료<input type="date" name="endDate" value="${item?.endDate || addDays(todayIso(), 7)}" required /></label></div>
     <label>공개 대상<select name="visibility"><option value="전체" ${item?.visibility !== "내부" ? "selected" : ""}>전체</option><option value="내부" ${item?.visibility === "내부" ? "selected" : ""}>직원 전용</option></select></label>
-    <p class="muted small">게시 기간 동안 홈 상단에 표시되며, 학사일정에도 함께 표시됩니다.</p>
-    <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button type="submit" class="primary">${item ? "저장" : "공지 등록"}</button></div></form>`;
+    <p class="muted small">입력 내용은 이 기기에 임시저장됩니다. 공지 등록을 눌러야 게시됩니다.</p>
+    <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button type="submit" class="primary">${saved ? "저장" : "공지 등록"}</button></div></form>`;
 }
 
 async function saveNotice(data) {
@@ -1839,6 +1859,9 @@ async function saveNotice(data) {
   const query = supabase.from("academic_events");
   const { error } = await (data.id ? query.update(payload).eq("id", data.id).eq("type", "안내") : query.insert(payload));
   if (error) { showMessage(`공지 저장 실패: ${error.message}`); return false; }
+  const draftKey = noticeDraftKey(data.id);
+  noticeDrafts.delete(draftKey);
+  try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
   await loadAllData();
 }
 
@@ -3584,5 +3607,5 @@ async function init() {
   render();
 }
 
-const academy = createAcademy({ db: supabase, context: () => ({session,state,route}), refresh: render, notices: renderHomeNotices, holiday: holidayOnDate, escape: escapeHtml });
+const academy = createAcademy({ db: supabase, context: () => ({session,state,route,modalOpen:!!modal}), refresh: () => { if (!modal) render(); }, notices: renderHomeNotices, holiday: holidayOnDate, escape: escapeHtml });
 init();

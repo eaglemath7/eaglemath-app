@@ -547,6 +547,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const f=e.target.closest('[data-ac-form="reflection"]');if(!f)return;clearTimeout(draftTimer);draftTimer=setTimeout(()=>{try{localStorage.setItem(draftKey('reflection'),JSON.stringify(Object.fromEntries(new FormData(f))));f.querySelector('.ac-form-status').textContent='이 기기에 임시저장됨 · 제출 버튼을 눌러 선생님께 보내주세요.';}catch{f.querySelector('.ac-form-status').textContent='임시저장하지 못했습니다. 임시저장 버튼을 눌러주세요.';}},500);
   });
   // Refresh without interrupting forms or selecting students.
-  setInterval(()=>{if(uid()&&document.visibilityState==='visible'&&!panel&&!busy&&!draggingTask&&!selected.size&&!document.activeElement?.closest('.ac-quick-task')&&!document.querySelector('[data-ac-form="school-scores"]'))load().then(refresh);},30000);
+  const canAutoRefresh=()=>uid()&&document.visibilityState==='visible'&&!c().modalOpen&&!panel&&!busy&&!draggingTask&&!selected.size&&!reflectionSelection.size&&!document.activeElement?.closest('form')&&!document.querySelector('[data-ac-form="school-scores"]');
+  setInterval(()=>{if(canAutoRefresh())load().then(()=>{if(canAutoRefresh())refresh();});},30000);
   return {render,load,reset(){clearTaskDrag();commentReviews=[];commentNotifications=[];commentsReady=false;addedGrades.clear();items=[];children=[];points=[];loadedFor='';panel='';selected.clear();reflectionSelection.clear();reflectionBatch=[];student='';}};
 }
