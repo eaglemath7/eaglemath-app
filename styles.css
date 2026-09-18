@@ -902,3 +902,35 @@ th {
 .topbar button[aria-current="page"] { background: var(--red); border-color: var(--red); color: white; }
 .topbar button[aria-pressed="true"] { background: #e7f0ff; border-color: var(--blue); color: var(--blue); font-weight: 700; }
 .topbar button:focus-visible { outline: 3px solid #88b7ef; outline-offset: 2px; }
+
+/* Full student text: compact cards without clipping or nested scrolling. */
+.ac-reflection-tools{gap:6px;margin:8px 0!important;font-size:12px}
+.ac-reflection-tools button,.ac-reflection-card button{font-size:12px;padding:5px 8px;min-height:28px}
+.ac-reflection-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;align-items:start}
+.ac-reflection-card{border:1px solid var(--line);border-radius:8px;padding:9px;min-width:0;font-size:12px;line-height:1.45;background:white}
+.ac-reflection-card label{display:flex;align-items:center;gap:5px;font-size:12px}
+.ac-reflection-card input[type=checkbox]{width:15px;height:15px;margin:0;flex:none}
+.ac-reflection-card small{font-size:11px;color:var(--muted)}
+.ac-reflection-copy p{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0;font-size:12px;line-height:1.45;max-height:none;overflow:visible}
+.ac-reflection-copy b{color:var(--muted);font-size:11px}
+.ac-reflection-card .toolbar{gap:4px;margin-top:7px}
+.ac-reflection-card .ac-badge{font-size:10px;padding:2px 5px}
+.ac-reflection-batch-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.ac-reflection-batch-grid label{display:block;margin-top:6px}
+.ac-reflection-batch-grid textarea{font-size:12px;min-height:64px;padding:7px}
+@media(min-width:1400px){.ac-reflection-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:600px){.ac-reflection-grid,.ac-reflection-batch-grid{grid-template-columns:1fr}}
+
+.ac-workspace{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;align-items:start}
+.ac-workspace-main{min-width:0}
+.ac-notification-rail{position:sticky;top:88px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px;font-size:12px;min-width:0}
+.ac-notification-rail>.between{gap:6px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.ac-notification-list{max-height:calc(100vh - 175px);overflow:auto;scrollbar-width:thin}
+.ac-notification-list article{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.ac-notification-list small{font-size:10px;color:var(--muted)}
+.ac-notification-rail button{font-size:11px;padding:3px 6px;min-height:24px}
+.ac-notification-rail .toolbar{gap:4px;margin-top:4px}
+.ac-workspace .ac-reflection-grid{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+@media(max-width:1100px){.ac-workspace{grid-template-columns:1fr}.ac-notification-rail{position:static}.ac-notification-list{max-height:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}}
+
+.ac-notification-select{display:flex;align-items:center;gap:5px;font-size:11px;margin:5px 0}.ac-notification-select input{width:14px;height:14px;margin:0}
