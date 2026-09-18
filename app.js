@@ -1114,11 +1114,19 @@ function renderAdminStudentFilters() {
   `;
 }
 
+let studentPasswordReset = { running: false, done: 0, total: 0, failed: [], armed: false };
+
 function renderStudentDirectory() {
   return `
         <div class="panel">
           <h2 class="section-title">학생정보</h2>
           <div class="muted small">신규 등록·초기화 비밀번호: 123456</div>
+          <details ${studentPasswordReset.armed || studentPasswordReset.total ? "open" : ""}><summary>전체 학생 비밀번호 초기화</summary>
+            <p class="muted small">삭제된 학생을 제외한 전체 학생 계정을 123456으로 초기화합니다. 현재 검색·학년 필터와 관계없이 적용됩니다.</p>
+            <button data-action="resetAllStudentPasswords" ${studentPasswordReset.running ? "disabled" : ""}>${studentPasswordReset.armed ? `전체 ${toList(state.students).filter(s => s.status !== "삭제").length}명 초기화 실행` : "전체 학생 123456 초기화"}</button>
+            ${studentPasswordReset.armed ? `<span class="muted small">실행하면 기존 비밀번호는 사용할 수 없습니다.</span><button data-action="cancelStudentPasswordReset">취소</button>` : ""}
+            <p role="status">${studentPasswordReset.total ? `처리 ${studentPasswordReset.done}/${studentPasswordReset.total}명 · 실패 ${studentPasswordReset.failed.length}명${studentPasswordReset.running ? " · 진행 중 — 창을 닫지 마세요." : ""}` : ""}</p>
+          </details>
           ${renderQuickStudentForm()}
           ${renderStudentTrash()}
           ${renderAdminStudentStatusTabs()}
@@ -2678,6 +2686,8 @@ async function handleAction(event) {
   if (action === "selectAllDrafts") selectedDraftIds = new Set(draftRecords().map(r => r.id));
   if (action === "clearDraftSelection") selectedDraftIds.clear();
   if (action === "resetPassword") await resetPassword(idValue);
+  if (action === "resetAllStudentPasswords") await resetAllStudentPasswords();
+  if (action === "cancelStudentPasswordReset") studentPasswordReset.armed = false;
   if (action === "toggleTeacher") await toggleActive("teachers", idValue);
   if (action === "togglePeriod") await toggleActive("periods", idValue);
   if (action === "movePeriodUp") await movePeriod(idValue, -1);
@@ -3441,6 +3451,32 @@ async function publishRecords(recordIds) {
   selectedDraftIds.clear();
   await loadAllData();
   render();
+}
+
+async function resetAllStudentPasswords() {
+  if (!canAdmin() || studentPasswordReset.running) return;
+  const students = toList(state.students).filter(s => s.status !== "삭제");
+  if (!students.length) { showMessage("초기화할 학생이 없습니다."); return; }
+  if (!studentPasswordReset.armed) { studentPasswordReset.armed = true; render(); return; }
+  studentPasswordReset = { running: true, done: 0, total: students.length, failed: [] };
+  render();
+  try {
+    for (const student of students) {
+      try {
+        const { error } = await invokeAdmin("admin-reset-password", { userId: student.id, newPassword: "123456" });
+        if (error) studentPasswordReset.failed.push(`${student.name} (${student.loginId}): ${error}`);
+      } catch (error) {
+        studentPasswordReset.failed.push(`${student.name} (${student.loginId}): ${error.message || "연결 오류"}`);
+      }
+      studentPasswordReset.done++;
+      render();
+    }
+  } finally {
+    studentPasswordReset.running = false;
+    render();
+  }
+  const { total, failed } = studentPasswordReset;
+  showMessage(`비밀번호 초기화 완료: 성공 ${total - failed.length}명 / 실패 ${failed.length}명` + (failed.length ? `\n${failed.join("\n")}` : "\n전체 학생이 123456으로 로그인할 수 있습니다."));
 }
 
 async function resetPassword(userId) {
