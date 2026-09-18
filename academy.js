@@ -127,10 +127,10 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   function reflectionQueue(){
     if(!staff())return '';
     const list=visibleReflections();
-    return `<section class="panel ac-reflection-board"><div class="between"><h3>학생 작성내용 · 일지 연결</h3>${btn('새로고침','reload')}</div><div class="toolbar ac-reflection-tools"><span>${list.filter(r=>reflectionSelection.has(r.id)).length}건 선택</span>${btn('제출내용 전체 선택','reflections-all')}${btn('선택 해제','reflections-clear')}${btn('선택 내용으로 일괄 일지 작성','reflections-batch','','primary')}</div><div class="ac-reflection-grid">${list.map(r=>`<article class="ac-reflection-card"><div class="between"><label><input type="checkbox" data-reflection-select="${h(r.id)}" aria-label="${h(name(r.student_id)+' '+r.day+' '+(r.body.period||'')+' 작성내용 선택')}" ${reflectionSelection.has(r.id)?'checked':''} ${r.status==='draft'?'disabled':''}/><strong>${h(name(r.student_id))}</strong></label>${badge(r.status)}</div><small>${h(r.day)} · ${h(r.body.period||'시간 미입력')}</small><div class="ac-reflection-copy">${reflectionText(r)}</div><div class="toolbar">${btn('피드백·하원 확인','reflection-review',r.id)}${r.status!=='draft'?btn('일지 작성','reflection-lesson',r.id):''}</div></article>`).join('')||empty('아직 저장된 학생 작성내용이 없습니다.')}</div></section>`;
+    return `<section class="panel ac-reflection-board"><div class="between"><h3>학생 수업기록 · 일지 연결</h3>${btn('새로고침','reload')}</div><div class="toolbar ac-reflection-tools"><span>${list.filter(r=>reflectionSelection.has(r.id)).length}건 선택</span>${btn('제출내용 전체 선택','reflections-all')}${btn('선택 해제','reflections-clear')}${btn('선택 내용으로 일괄 일지 작성','reflections-batch','','primary')}</div><div class="ac-reflection-grid">${list.map(r=>`<article class="ac-reflection-card"><div class="between"><label><input type="checkbox" data-reflection-select="${h(r.id)}" aria-label="${h(name(r.student_id)+' '+r.day+' '+(r.body.period||'')+' 수업기록 선택')}" ${reflectionSelection.has(r.id)?'checked':''} ${r.status==='draft'?'disabled':''}/><strong>${h(name(r.student_id))}</strong></label>${badge(r.status)}</div><small>${h(r.day)} · ${h(r.body.period||'시간 미입력')}</small><div class="ac-reflection-copy">${reflectionText(r)}</div><div class="toolbar">${btn('피드백·하원 확인','reflection-review',r.id)}${r.status!=='draft'?btn('일지 작성','reflection-lesson',r.id):''}</div></article>`).join('')||empty('아직 저장된 학생 수업기록이 없습니다.')}</div></section>`;
   }
   function reflectionBatchForm(){
-    return form('선택한 학생 작성내용으로 일괄 일지 작성','reflection-batch',`<p class="muted small">날짜·수업 시간과 학생별 원문을 각각 연결합니다. 저장 후 일지를 검토하고 게시할 수 있습니다.</p><div class="ac-reflection-batch-grid">${reflectionBatch.map(id=>{
+    return form('선택한 학생 수업기록으로 일괄 일지 작성','reflection-batch',`<p class="muted small">날짜·수업 시간과 학생별 원문을 각각 연결합니다. 저장 후 일지를 검토하고 게시할 수 있습니다.</p><div class="ac-reflection-batch-grid">${reflectionBatch.map(id=>{
       const r=items.find(x=>x.id===id), old=rows('lesson_draft').find(x=>x.body.reflection_id===id&&x.student_id===r.student_id&&x.status==='draft');
       const b={...reflectionLessonBody(r.body),...old?.body};
       return `<section class="ac-reflection-card"><strong>${h(name(r.student_id))} · ${h(r.day)} · ${h(r.body.period||'')}</strong><div class="ac-reflection-copy">${reflectionText(r)}</div>`+area('선생님 관찰 키워드','keywords:'+id,b.keywords)+area('학부모님께 (직접 수정 가능)','parent_message:'+id,b.parent_message)+`</section>`;
@@ -242,7 +242,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const refs=ids.map(id=>findLessonReflection(items,id,i?.day||day,i?.body.period||period,source?.id||i?.body.reflection_id)).filter(Boolean);
     const own=source||(ids.length===1?refs[0]:null);
     const d={...reflectionLessonBody(own?.body),...i?.body};
-    return form(i?'알림장 수정':'학생 작성내용으로 수업 일지 작성','lesson',`<p>${ids.map(name).map(h).join(', ')} · 학생 원문은 그대로 보존됩니다.</p><input type="hidden" name="reflection_id" value="${h(own?.id||i?.body.reflection_id||'')}"/><details open><summary>연결된 학생 작성내용 ${refs.length}건</summary>${refs.map(r=>`<p>${h(name(r.student_id))} · ${h(r.body.material)} ${h(r.body.unit)} ${h(r.body.pages)}</p><p class="notice-copy">${h(r.body.learned||'')}</p><p>과제: ${h(r.body.assignment||'')}</p><p>${h(r.body.feeling||'')}</p>`).join('')}</details>`+
+    return form(i?'알림장 수정':'학생 수업기록으로 수업 일지 작성','lesson',`<p>${ids.map(name).map(h).join(', ')} · 학생 원문은 그대로 보존됩니다.</p><input type="hidden" name="reflection_id" value="${h(own?.id||i?.body.reflection_id||'')}"/><details open><summary>연결된 학생 수업기록 ${refs.length}건</summary>${refs.map(r=>`<p>${h(name(r.student_id))} · ${h(r.body.material)} ${h(r.body.unit)} ${h(r.body.pages)}</p><p class="notice-copy">${h(r.body.learned||'')}</p><p>과제: ${h(r.body.assignment||'')}</p><p>${h(r.body.feeling||'')}</p>`).join('')}</details>`+
       input('수업 제목','title',i?.title||'오늘 수업')+input('교재','material',d.material)+input('단원','unit',d.unit)+input('학습 과정 (입력하면 진도표에 자동 반영)','course',d.course)+select('진도 구분','track',['현행','선행','복습'].map(x=>[x,x]),d.track||'현행')+
       area('공부한 내용 · 페이지 · 문항 수','content',d.content)+area('오늘 알게 된 것','learned',d.learned)+area('오늘의 과제','assignment',d.assignment)+area('학생 소감','feeling',d.feeling)+area('선생님 관찰 키워드','keywords',d.keywords)+area('학부모님께','parent_message',d.parent_message)+area('학생에게','student_message',d.student_message)+area('직원 내부 메모','internal_note',d.internal_note)+btn('AI 문장 다듬기','polish-form')+`<div class="ac-ai-result"></div>`,i?.id||'', '<button type="submit" name="intent" value="draft">초안 저장</button><button type="submit" name="intent" value="publish" class="primary">게시하기</button><button type="submit" name="intent" value="ai-publish">AI 다듬기 후 바로 게시</button>');
   }
@@ -323,7 +323,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(a==='reflections-batch'){
         if(!staff())return;
         reflectionBatch=visibleReflections().filter(r=>reflectionSelection.has(r.id)&&r.status!=='draft').map(r=>r.id);
-        if(!reflectionBatch.length)throw new Error('학생 작성내용을 먼저 체크해주세요.');
+        if(!reflectionBatch.length)throw new Error('학생 수업기록을 먼저 체크해주세요.');
         batchIds.clear();panel=reflectionBatchForm();
       }
       if(a==='bulk-lesson'){if(!selected.size)throw new Error('학생을 먼저 선택해주세요.');panel=lessonForm();}
@@ -448,7 +448,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
         for(const rid of reflectionBatch){
           try {
             const r=visibleReflections().find(x=>x.id===rid&&x.status!=='draft');
-            if(!r)throw new Error('작성내용을 찾을 수 없습니다.');
+            if(!r)throw new Error('수업기록을 찾을 수 없습니다.');
             const linked=rows('lesson_draft').find(x=>x.student_id===r.student_id&&x.body.reflection_id===rid);
             if(linked&&linked.status!=='draft')throw new Error('이미 게시한 일지는 개별 수정해주세요.');
             const attendance=rows('attendance').find(x=>x.student_id===r.student_id&&x.day===r.day&&x.body.period===r.body.period);

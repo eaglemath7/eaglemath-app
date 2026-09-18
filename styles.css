@@ -136,6 +136,11 @@ label {
 }
 .main.wide {
   width: 100%;
+  padding-inline: 12px;
+}
+.main.wide .academy {
+  width: 100%;
+  max-width: none;
 }
 .login-page {
   min-height: 100vh;
