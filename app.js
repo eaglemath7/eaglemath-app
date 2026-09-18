@@ -262,6 +262,15 @@ async function loadAllData() {
 // 관리자 전용 Edge Function 호출 (service_role 키가 필요한 계정 생성/비밀번호
 // 재설정만 서버에서 처리). 호출자의 세션 토큰은 supabase-js가 자동으로 붙입니다.
 async function invokeAdmin(name, body) {
+  // Supabase Auth requires at least six characters. Always send the default
+  // explicitly so older deployed functions cannot fall back to four digits.
+  if (name === "admin-create-user") {
+    body = { ...body, password: body.password?.trim() || "123456" };
+  }
+  if (["admin-create-user", "admin-reset-password"].includes(name)) {
+    const password = name === "admin-create-user" ? body.password : body.newPassword?.trim();
+    if (!password || password.length < 6) return { data: null, error: "비밀번호는 6자리 이상으로 입력해주세요." };
+  }
   const { data, error } = await supabase.functions.invoke(name, { body });
   if (error) {
     let message = error.message || "요청 실패";
@@ -790,10 +799,10 @@ function renderPasswordPanel() {
   return `
     <section class="panel stack password-panel">
       <strong>최초 로그인 비밀번호 변경</strong>
-      <div class="muted small">숫자 4자리로 새 비밀번호를 정해주세요.</div>
+      <div class="muted small">6자리 이상으로 새 비밀번호를 정해주세요.</div>
       <form class="grid two" data-form="changePassword">
-        <label>새 비밀번호 <input name="password" type="password" inputmode="numeric" pattern="\\d{4}" maxlength="4" minlength="4" required /></label>
-        <label>새 비밀번호 확인 <input name="confirm" type="password" inputmode="numeric" pattern="\\d{4}" maxlength="4" minlength="4" required /></label>
+        <label>새 비밀번호 <input name="password" type="password" autocomplete="new-password" minlength="6" required /></label>
+        <label>새 비밀번호 확인 <input name="confirm" type="password" autocomplete="new-password" minlength="6" required /></label>
         <button class="primary" type="submit">변경</button>
       </form>
     </section>
@@ -1109,6 +1118,7 @@ function renderStudentDirectory() {
   return `
         <div class="panel">
           <h2 class="section-title">학생정보</h2>
+          <div class="muted small">신규 등록·초기화 비밀번호: 123456</div>
           ${renderQuickStudentForm()}
           ${renderStudentTrash()}
           ${renderAdminStudentStatusTabs()}
@@ -1125,7 +1135,7 @@ function renderStudentDirectory() {
                   <td>${escapeHtml(s.parentPhone || "-")}</td>
                   <td class="toolbar">
                     <button data-action="editStudent" data-id="${s.id}">수정</button>
-                    <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
+                    <button data-action="resetPassword" data-id="${s.id}">123456 초기화</button>
                     <select data-action="changeStudentStatus" data-id="${s.id}">
                       ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === (s.status || "재원") ? "selected" : ""}>${v}</option>`).join("")}
                     </select>
@@ -1185,7 +1195,7 @@ function renderAdmin() {
                   <td>${roleName(t.role)}</td>
                   <td class="toolbar">
                     <button data-action="editTeacher" data-id="${t.id}">수정</button>
-                    <button data-action="resetPassword" data-id="${t.id}">1234 초기화</button>
+                    <button data-action="resetPassword" data-id="${t.id}">123456 초기화</button>
                     <button data-action="toggleTeacher" data-id="${t.id}">${t.active ? "숨김" : "복구"}</button>
                   </td>
                 </tr>
@@ -1768,7 +1778,7 @@ function renderStudentForm(student = null) {
       </div>
       ${siblingPickerHtml(student?.id || "")}
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름+생일4자리로 자동 생성 (그래도 겹치면 -2, -3...)" /></label>
-      <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
+      <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" minlength="6" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 123456로 자동 생성"}" /></label>
       <section class="panel stack curriculum-setup">
         <div><strong>학습 교재와 교육과정</strong><div class="muted small">교재마다 실제로 공부하는 학년과 학기를 따로 지정합니다. 같은 교재를 학기만 다르게 여러 번 추가할 수 있고, 개수 제한도 없습니다.</div></div>
         <datalist id="materialOptions">${toList(state.materials).map(m => `<option value="${escapeHtml(m)}"></option>`).join("")}</datalist>
@@ -1850,8 +1860,8 @@ function renderTeacherForm(teacher = null) {
       </div>
       <label>전화번호 <input name="phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(teacher?.phone || "")}" required /></label>
       <label>권한 <select name="role"><option value="teacher" ${teacher?.role === "teacher" ? "selected" : ""}>강사</option><option value="assistant" ${teacher?.role === "assistant" ? "selected" : ""}>조교</option><option value="deputy" ${teacher?.role === "deputy" ? "selected" : ""}>부원장</option><option value="admin" ${teacher?.role === "admin" ? "selected" : ""}>관리자</option></select></label>
-      <label>비밀번호${teacher ? " (변경 시에만 입력)" : ""} <input name="password" type="password" autocomplete="new-password" placeholder="${teacher ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
-      <div class="muted small">신규 계정의 초기 비밀번호는 1234이며, 최초 로그인 시 비밀번호 변경 화면이 뜹니다.</div>
+      <label>비밀번호${teacher ? " (변경 시에만 입력)" : ""} <input name="password" type="password" minlength="6" autocomplete="new-password" placeholder="${teacher ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 123456로 자동 생성"}" /></label>
+      <div class="muted small">신규 계정의 초기 비밀번호는 123456이며, 최초 로그인 시 비밀번호 변경 화면이 뜹니다.</div>
       <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button class="primary" type="submit">${teacher ? "저장" : "등록"}</button></div>
     </form>
   `;
@@ -2824,6 +2834,11 @@ async function importStudentsFromRows(rows) {
 
 async function handleForm(form) {
   const data = Object.fromEntries(new FormData(form).entries());
+  if (["student", "studentEdit", "teacher", "teacherEdit"].includes(form.dataset.form)
+      && data.password?.trim() && data.password.trim().length < 6) {
+    showMessage("비밀번호는 6자리 이상으로 입력해주세요.");
+    return;
+  }
   let result;
   if (form.dataset.form === "record") result = await saveRecord(form.dataset.mode, data);
   else if (form.dataset.form === "student") result = await addStudent(form, data);
@@ -3026,7 +3041,7 @@ function validateStudentPhones(data) {
 }
 
 // 이름(+학년)만으로 바로 학생 계정을 만듭니다. 시간표/교재/형제 연결/연락처는
-// 비워두고, 나중에 "수정"에서 채우면 됩니다. 초기 비밀번호는 1234.
+// 비워두고, 나중에 "수정"에서 채우면 됩니다. 초기 비밀번호는 123456.
 async function addStudentQuick(data) {
   const name = (data.name || "").trim();
   if (!name) { showMessage("이름을 입력해주세요."); return false; }
@@ -3309,8 +3324,8 @@ async function changePassword(data) {
     showMessage("비밀번호 확인이 일치하지 않습니다.");
     return false;
   }
-  if (!/^\d{4}$/.test(data.password)) {
-    showMessage("비밀번호는 숫자 4자리로 입력해주세요.");
+  if (data.password.trim().length < 6) {
+    showMessage("비밀번호는 6자리 이상으로 입력해주세요.");
     return false;
   }
   const { error: authError } = await supabase.auth.updateUser({ password: data.password });
@@ -3429,10 +3444,10 @@ async function publishRecords(recordIds) {
 
 async function resetPassword(userId) {
   if (!canAdmin()) return;
-  const { error } = await invokeAdmin("admin-reset-password", { userId, newPassword: "1234" });
+  const { error } = await invokeAdmin("admin-reset-password", { userId, newPassword: "123456" });
   if (error) { showMessage(`비밀번호 초기화 실패: ${error}`); return; }
   await loadAllData();
-  showMessage("비밀번호가 1234로 초기화되었습니다.");
+  showMessage("비밀번호가 123456로 초기화되었습니다.");
 }
 
 // 재원/휴원/퇴원 상태를 바꿉니다. 재원이 아니면 profiles.active도 꺼서
