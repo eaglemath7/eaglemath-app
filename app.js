@@ -1573,7 +1573,7 @@ function renderRecordForm(mode, record = {}) {
       <label>학생에게 보내는 글 <textarea name="studentMessage" data-common-field="studentMessage" placeholder="학생에게 직접 남길 응원이나 안내">${escapeHtml(record.studentMessage || "")}</textarea></label>
       ${renderAiPromptTool(record)}
       <label>리마인드 키워드 <input name="keywords" data-common-field="keywords" value="${escapeHtml(record.keywords || "")}" placeholder="예: 기울기, 일차식, 동류항" /></label>
-      <label>테스트 <input name="testName" data-common-field="testName" value="${escapeHtml([record.testName, record.testScore].filter(Boolean).join(" "))}" placeholder="예: Daily Test 12/20 또는 단원평가 85" /></label>
+      <label>테스트 <input name="testName" data-common-field="testName" value="${escapeHtml([record.testName, record.testScore].filter(Boolean).join(" "))}" placeholder="예: 단원평가 85점" /></label>
       <input type="hidden" name="testScore" value="" />
       <label>다음 수업 계획 <input name="nextPlan" data-common-field="nextPlan" value="${escapeHtml(record.nextPlan || "")}" /></label>
       ${mode !== "edit" && studentIds.length > 1 ? renderIndividualRecordFields(studentIds, record, existingByStudent) : ""}
@@ -1873,7 +1873,7 @@ function renderAcademicEventList() {
 
 function renderAcademicEventForm() {
   return `<form class="stack" data-form="academicEvent"><div class="between"><h2 class="section-title">학사일정 등록</h2><button type="button" data-action="closeModal">닫기</button></div>
-    <label>일정명 <input name="title" placeholder="예: 여름방학, 중간고사 대비" required /></label>
+    <label>일정명 <input name="title" placeholder="예: 여름방학, 단원평가" required /></label>
     <div class="grid two"><label>시작일 <input type="date" name="startDate" value="${todayIso()}" required /></label><label>종료일 <input type="date" name="endDate" value="${todayIso()}" required /></label></div>
     <div class="grid two"><label>구분 <select name="type"><option value="휴원">휴원 · 학원 방학 · 재량휴업</option><option>공휴일</option><option>시험</option><option>특강</option><option>안내</option></select></label><label>공개 <select name="visibility"><option>전체</option><option>내부</option></select></label></div>
     <label>메모 <textarea name="note" placeholder="필요한 안내만 간단히 입력"></textarea></label>
