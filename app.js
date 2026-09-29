@@ -758,7 +758,7 @@ function renderTeacher() {
 
   return `
     <div class="grid teacher-dashboard">
-      
+
       ${renderUnwrittenPanel(session.id)}
       ${renderParentCommentInbox()}
       ${renderCalendar({ teacherId: session.id })}
@@ -1261,7 +1261,7 @@ function renderStudent() {
   const dayRecords = records.filter(record => record.lessonDate === studentViewDate);
   return `
     <div class="grid">
-      
+
       ${renderSiblingSwitcher()}
       ${renderCalendar({ studentId: viewedId, parentView: true })}
       <section class="panel stack">

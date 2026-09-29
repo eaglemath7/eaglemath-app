@@ -1,0 +1,4 @@
+# ai-polish validates the bearer token with Auth.getUser(token), then verifies
+# active staff membership. The legacy-secret-only gateway rejects newer JWTs.
+[functions.ai-polish]
+verify_jwt = false
