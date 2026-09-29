@@ -1,5 +1,5 @@
 import { authPassword } from './auth-password.js?v=1';
-import { createAcademy } from "./academy.js?v=27";
+import { createAcademy } from "./academy.js?v=28";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
