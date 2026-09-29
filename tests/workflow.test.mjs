@@ -167,4 +167,19 @@ await db.exec('reset role');const U='00000000-0000-4000-8000-000000000099';await
 await as(U);assert.equal((await db.query('select * from academy_required_reviews')).rows.length,0);await fails(()=>ack(dualComment.id,false),/담당 강사/);
 console.log('PASS: persistent dual reviews, assigned-teacher checks, publish gating, one-role auto acknowledgement, edited records reopen, parent privacy and unassigned staff blocked');
 
+await db.exec('reset role');
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/202609300003_admin_teacher_ack.sql',import.meta.url),'utf8'));
+const D='00000000-0000-4000-8000-000000000098',H='00000000-0000-4000-8000-000000000097';
+await db.query("insert into profiles(id,role,name) values($1,'deputy','부원장'),($2,'assistant','조교')",[D,H]);
+await as(P);dualComment=await save({...dualComment,body:{...dualComment.body,text:'관리자 대리 확인 테스트'}});
+await as(A);await ack(dualComment.id,false);assert.equal((await review(dualComment.id)).teacher_id,A);assert.equal((await review(dualComment.id)).director_at,null,'teacher override does not check director');
+await as(D);await ack(dualComment.id,true);assert.equal((await review(dualComment.id)).director_id,D);
+await as(P);dualComment=await save({...dualComment,body:{...dualComment.body,text:'부원장 담임 칸 확인'}});
+await as(D);await ack(dualComment.id,false);assert.equal((await review(dualComment.id)).teacher_id,D);assert.equal((await review(dualComment.id)).director_at,null);
+await as(H);await fails(()=>ack(dualComment.id,true),/관리자/);await fails(()=>ack(dualComment.id,false),/담당 강사 또는 관리자/);
+await as(U);await fails(()=>ack(dualComment.id,true),/관리자/);await fails(()=>ack(dualComment.id,false),/담당 강사 또는 관리자/);
+await as(T);await fails(()=>ack(dualComment.id,true),/관리자/);
+await db.exec('reset role');await db.query('update profiles set active=false where id=$1',[D]);await as(D);await fails(()=>ack(dualComment.id,false),/직원만/);
+console.log('PASS: only active admin/deputy can override teacher acknowledgement, both lanes remain independent and record actual actor');
+
 await db.close();
