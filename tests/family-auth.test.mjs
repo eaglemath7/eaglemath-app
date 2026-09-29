@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import {stripTypeScriptTypes} from 'node:module';
+let handler,role='student',active=true,received;
+const code=fs.readFileSync('supabase/functions/academy-family/index.ts','utf8').replace(/^import .*;\n/m,'');
+vm.runInNewContext(stripTypeScriptTypes(code),{Request,Response,Deno:{env:{get:()=> 'mock'},serve:f=>handler=f},createClient:()=>({auth:{getUser:async token=>{received=token;return {data:{user:token==='valid'?{id:'admin'}:null}};}},from:()=>({select:()=>({eq:()=>({single:async()=>({data:{role,active}})})})})})});
+const call=token=>handler(new Request('https://example.test',{method:'POST',headers:{Authorization:'Bearer '+token},body:JSON.stringify({studentIds:[]})}));
+assert.equal((await call('bad')).status,401);
+assert.equal((await call('valid')).status,403);
+role='admin';active=false;assert.equal((await call('valid')).status,403);
+active=true;assert.equal((await call('valid')).status,400);assert.equal(received,'valid');
+console.log('PASS: family management verifies bearer token, rejects student/inactive access, admin reaches validated family workflow');

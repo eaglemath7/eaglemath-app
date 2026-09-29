@@ -7,7 +7,7 @@ Deno.serve(async(req)=>{
  try{
   const url=Deno.env.get('SUPABASE_URL')!, service=createClient(url,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false}});
   const user=createClient(url,Deno.env.get('SUPABASE_ANON_KEY')!,{global:{headers:{Authorization:req.headers.get('Authorization')||''}},auth:{persistSession:false}});
-  const {data:auth,error:authError}=await user.auth.getUser();if(authError||!auth.user)return json({error:'로그인이 필요합니다'},401);
+  const {data:auth,error:authError}=await user.auth.getUser((req.headers.get('Authorization')||'').replace(/^Bearer\s+/i,''));if(authError||!auth.user)return json({error:'로그인이 필요합니다'},401);
   const {data:profile}=await user.from('profiles').select('role,active').eq('id',auth.user.id).single();
   if(!profile?.active||!['admin','deputy'].includes(profile.role))return json({error:'관리자 전용입니다'},403);
   const b=await req.json();const ids=Array.isArray(b.studentIds)?[...new Set(b.studentIds)]:[];

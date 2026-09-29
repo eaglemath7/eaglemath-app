@@ -6,3 +6,9 @@ verify_jwt = false
 # This function separately verifies an active admin/deputy through Auth.
 [functions.admin-reset-password]
 verify_jwt = false
+
+# Family management verifies an active admin; parent login verifies credentials.
+[functions.academy-family]
+verify_jwt = false
+[functions.academy-parent-login]
+verify_jwt = false
