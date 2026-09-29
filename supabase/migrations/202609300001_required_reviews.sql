@@ -93,7 +93,7 @@ begin
 end $$;
 -- Existing records need explicit acknowledgement; do not guess who reviewed them.
 insert into academy_required_reviews(source_id,lesson_id)
-select i.id,(select l.id from academy_items l where l.kind='lesson' and l.status='published' and l.student_id=i.student_id and l.body->>'reflection_id'=i.id::text order by l.updated_at desc limit 1)
+select i.id,(select l.id from academy_items l where l.kind='lesson' and l.status='published' and l.student_id=i.student_id and l.body->>'reflection_id'=i.id::text and ((l.body->'reflection')-'feedback') is not distinct from (i.body-'feedback') order by l.updated_at desc limit 1)
 from academy_items i join profiles p on p.id=i.owner_id
 where (i.kind='reflection' and i.status<>'draft') or (i.kind in ('question','reply') and i.audience='parent' and p.role='parent');
 commit;
