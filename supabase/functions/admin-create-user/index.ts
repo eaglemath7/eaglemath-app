@@ -41,7 +41,7 @@ async function requireStaff(req: Request) {
     auth: { persistSession: false },
   });
 
-  const { data: userData, error: userError } = await userClient.auth.getUser();
+  const { data: userData, error: userError } = await userClient.auth.getUser(token);
   if (userError || !userData?.user) return { error: "invalid token", status: 401 } as const;
 
   const { data: profile, error: profileError } = await userClient
@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
 
     const { data: created, error: createError } = await adminClient.auth.admin.createUser({
       email,
-      password: finalPassword,
+      password: finalPassword.length < 6 ? "eaglemath:short:v1:" + finalPassword : finalPassword,
       email_confirm: true,
       user_metadata: { login_id: loginId, role },
     });

@@ -12,3 +12,11 @@ verify_jwt = false
 verify_jwt = false
 [functions.academy-parent-login]
 verify_jwt = false
+
+# These endpoints verify the bearer token and active staff role internally.
+[functions.admin-create-user]
+verify_jwt = false
+[functions.admin-delete-user]
+verify_jwt = false
+[functions.academy-ai]
+verify_jwt = false

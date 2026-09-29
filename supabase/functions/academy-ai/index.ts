@@ -5,10 +5,10 @@ Deno.serve(async(req)=>{
  if(req.method==='OPTIONS')return new Response('ok',{headers:cors});if(req.method!=='POST')return json({},405);
  try{
   const client=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_ANON_KEY')!,{global:{headers:{Authorization:req.headers.get('Authorization')||''}},auth:{persistSession:false}});
-  const {data:u,error:ue}=await client.auth.getUser();if(ue||!u.user)return json({error:'로그인이 필요합니다'},401);
+  const {data:u,error:ue}=await client.auth.getUser((req.headers.get('Authorization')||'').replace(/^Bearer\s+/i,'').trim());if(ue||!u.user)return json({error:'로그인이 필요합니다'},401);
   const {data:p}=await client.from('profiles').select('active,role').eq('id',u.user.id).single();if(!p?.active||!['admin','deputy','teacher','assistant'].includes(p.role))return json({error:'직원 전용입니다'},403);
   const {questionId}=await req.json();const {data:q,error}=await client.from('academy_items').select('*').eq('id',questionId).eq('kind','question').single();if(error||!q)return json({error:'질문을 찾을 수 없습니다'},404);
-  const key=Deno.env.get('ANTHROPIC_API_KEY'),model=Deno.env.get('ANTHROPIC_MODEL');if(!key||!model)return json({error:'AI 키와 모델 설정이 필요합니다'},503);
+  const key=Deno.env.get('ANTHROPIC_API_KEY'),model=Deno.env.get('ANTHROPIC_MODEL')||'claude-sonnet-5';if(!key)return json({error:'AI 키와 모델 설정이 필요합니다'},503);
   const content:unknown[]=[];
   for(const path of (q.body.files||[]).slice(0,5)){
    const {data:file,error:fe}=await client.storage.from('academy-private').download(path);if(fe||!file)return json({error:'사진을 읽지 못했습니다'},400);

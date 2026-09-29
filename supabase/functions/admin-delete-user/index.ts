@@ -35,7 +35,7 @@ async function requireStaff(req: Request) {
     auth: { persistSession: false },
   });
 
-  const { data: userData, error: userError } = await userClient.auth.getUser();
+  const { data: userData, error: userError } = await userClient.auth.getUser(token);
   if (userError || !userData?.user) return { error: "invalid token", status: 401 } as const;
 
   const { data: profile, error: profileError } = await userClient
