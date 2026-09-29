@@ -36,7 +36,7 @@ async function requireStaffOrTeacher(req: Request) {
     auth: { persistSession: false },
   });
 
-  const { data: userData, error: userError } = await userClient.auth.getUser();
+  const { data: userData, error: userError } = await userClient.auth.getUser(token);
   if (userError || !userData?.user) return { error: "invalid token", status: 401 } as const;
 
   const { data: profile, error: profileError } = await userClient
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-5",
+        model: Deno.env.get("ANTHROPIC_MODEL") || "claude-sonnet-5",
         max_tokens: 500,
         messages: [{ role: "user", content: prompt }],
       }),

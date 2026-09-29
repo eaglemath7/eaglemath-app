@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {authPassword} from '../auth-password.js';
+for(const pin of ['1111','1234','abcde'])assert.ok(authPassword(pin).length>=6);
+assert.equal(authPassword('123456'),'123456');assert.equal(authPassword('long-password'),'long-password');
+assert.notEqual(authPassword('1111'),authPassword('1234'));assert.equal(authPassword(' 1234 '),authPassword('1234'));
+assert.equal(authPassword(''),'');
+const app=fs.readFileSync('app.js','utf8'),academy=fs.readFileSync('academy.js','utf8');
+assert.match(app,/const password = authPassword\(form.get\("password"\)\)/);
+assert.match(app,/newPassword:authPassword\(body.newPassword\)/);
+assert.match(app,/password:authPassword\(body.password\)/);
+assert.match(academy,/password:authPassword\(d.password\),studentIds/);
+assert(!academy.includes('처음 로그인하셨습니다'));assert(!app.includes('session.mustChangePassword ? renderPasswordPanel()'));
+console.log('PASS: short password compatibility, distinct passwords, unchanged existing passwords, all login/create/reset paths, no forced first-login notice');

@@ -9,7 +9,7 @@ async function run({admin=true,confirm=true,failed=false,running=false}={}){
  const result=await new (Object.getPrototypeOf(async function(){}).constructor)('canAdmin','state','toList','window','showMessage','render','invokeAdmin',body)(()=>admin,state,x=>x,{confirm:()=>confirm},x=>messages.push(x),()=>{},async(name,payload)=>{calls.push([name,payload]);if(failed&&payload.userId==='b')throw Error('network');return {error:null};});
  return {calls,messages,result};
 }
-let r=await run();assert.equal(r.calls.length,2);assert.ok(r.calls.every(([name,p])=>name==='admin-reset-password'&&p.newPassword==='123456'));assert.match(r.messages[0],/성공 2명 \/ 실패 0명/);
+let r=await run();assert.equal(r.calls.length,2);assert.ok(r.calls.every(([name,p])=>name==='admin-reset-password'&&p.newPassword==='1234'));assert.match(r.messages[0],/성공 2명 \/ 실패 0명/);
 r=await run({failed:true});assert.equal(r.result.failed.length,1);assert.equal(r.result.running,false);assert.match(r.messages[0],/성공 1명 \/ 실패 1명/);
 for(const opts of [{admin:false},{confirm:false},{running:true}])assert.equal((await run(opts)).calls.length,0);
 console.log('PASS: student-only reset, deleted exclusion, admin and duplicate-run guards, cancellation, truthful partial-failure counts');

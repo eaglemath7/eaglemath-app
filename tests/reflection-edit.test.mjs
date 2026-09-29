@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const src=fs.readFileSync('academy.js','utf8');
+const clause=src.split("      if(kind==='reflection-review')")[1].split('\n')[0];
+const run=new (Object.getPrototypeOf(async function(){}).constructor)('old','d','intent','staff','save',clause);
+const old={id:'reflection',student_id:'student',status:'submitted',day:'2026-09-19',body:{period:'보충 10:00–13:00',learned:'원문',assignment:'20쪽',material:'교재',unit:'1단원'}};
+let saved;await run(old,{learned:'다듬은 문장',assignment:'21쪽'},'edit',()=>true,async v=>saved=v);
+assert.equal(saved.status,'submitted');assert.equal(saved.day,old.day);assert.equal(saved.body.period,old.body.period);assert.equal(saved.body.learned,'다듬은 문장');assert.equal(saved.body.material,'교재');assert.equal(old.body.learned,'원문');
+await run({...old,status:'approved'},{learned:'교정'},'edit',()=>true,async v=>saved=v);assert.equal(saved.status,'approved');
+await assert.rejects(()=>run(old,{},'edit',()=>false,async()=>{}),/직원만/);
+console.log('PASS: teacher corrections retain source identity/date/session and approval state, untouched fields preserved, students blocked');

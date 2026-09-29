@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {stripTypeScriptTypes} from 'node:module';
+const source=fs.readFileSync('supabase/functions/ai-polish/index.ts','utf8').replace(/^import .*;\n/m,'');
+let handler,receivedToken,role='teacher',active=true,valid=true,requests=0;
+const context={Request,Response,console,Deno:{env:{get:k=>({SUPABASE_URL:'https://example.test',SUPABASE_ANON_KEY:'public',ANTHROPIC_API_KEY:'test-only'})[k]},serve:f=>handler=f},createClient:()=>({auth:{getUser:async token=>{receivedToken=token;return {data:{user:valid&&token==='valid-session'?{id:'teacher'}:null},error:valid?null:Error('invalid')}}},from:()=>({select:()=>({eq:()=>({single:async()=>({data:{id:'teacher',role,active},error:null})})})})}),fetch:async()=>{requests++;return Response.json({content:[{type:'text',text:'오늘은 삼각비를 공부했습니다.'}]})}};
+vm.runInNewContext(stripTypeScriptTypes(source),context);
+const request=(token)=>handler(new Request('https://example.test/ai-polish',{method:'POST',headers:token?{Authorization:'Bearer '+token}:{},body:JSON.stringify({source:'삼각비',kind:'parentMessage'})}));
+assert.equal((await request()).status,401);assert.equal(requests,0);
+assert.equal((await request('bad')).status,401);assert.equal(requests,0);
+role='student';assert.equal((await request('valid-session')).status,403);assert.equal(requests,0);
+role='teacher';active=false;assert.equal((await request('valid-session')).status,403);assert.equal(requests,0);
+active=true;const result=await request('valid-session');assert.equal(result.status,200);assert.equal(receivedToken,'valid-session');assert.equal(requests,1);assert.match((await result.json()).text,/삼각비/);
+console.log('PASS: explicit session verification, missing/invalid/inactive/student blocked before AI, authorized teacher receives generated text');
