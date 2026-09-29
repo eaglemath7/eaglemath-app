@@ -57,7 +57,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   let draggingTask=null;
   let reflectionSelection=new Set(), reflectionBatch=[];
   let requiredReviews=[],requiredReviewsReady=false;
-  let commentReviews=[],commentNotifications=[],commentSearch='',commentFilter='all',commentsReady=false;
+  let commentReviews=[],commentNotifications=[],commentSearch='',commentFilter='pending',commentsReady=false;
   let draftTimer, loadPromise, batchIds=new Map(), legacyRecords=[], parentAccounts=[], familyLinks=[];
   const requestId=key=>{if(!batchIds.has(key))batchIds.set(key,crypto.randomUUID());return batchIds.get(key);};
   const labels = {todo:'할 일',doing:'진행 중',done:'완료',assigned:'미제출',submitted:'확인 대기',returned:'보완 요청',checked:'검사 완료',draft:'작성 중',approved:'하원 승인',open:'답변 대기',answering:'답변 중',answered:'답변 완료',resolved:'해결',published:'게시 완료'};
@@ -198,7 +198,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   }
   function home(){
     if(parent())return `${notices()}${statusNotice()}${chips()}${parentLearningSummary()}`;
-    return `${notices()}${statusNotice()}<div class="ac-shortcuts">${staff()?routeBtn('오늘 수업','직전 과제부터 알림장까지','academy_class')+routeBtn('과제·질문','제출 확인과 답변','academy_inbox')+routeBtn('학생 성장기록','평가 · 진도 · 학습점수','academy_growth')+routeBtn('학부모 코멘트'+(admin()?` · ${parentCommentSources().filter(i=>!reviewDone(reviewFor(i.id))).length}`:` · ${parentCommentSources().filter(i=>!reviewDone(reviewFor(i.id))).length}`),'확인과 답글','academy_comments'):routeBtn(parent()?'자녀 알림장':'오늘의 학습',parent()?'학습 현황과 선생님 소통':'과제 제출 · 학습 리마인드','academy_learning')+routeBtn('선생님께 질문','사진과 글로 질문하기','academy_inbox')+routeBtn('성장기록','평가와 학습점수','academy_growth')}</div>${staff()?`${reflectionQueue()}<section class="panel">${taskBoard()}</section>${admin()?`<details class="panel"><summary>함께 할 일 · 직원별 업무 배정</summary>${taskBoard(true)}</details>`:''}${calendar()}<div class="ac-footer">${btn('학교 일정 확인','school-events')}${admin()?btn('가족 연결 · 앱 초대','families'):''}<button data-route="admin" ${!admin()?'hidden':''}>기존 학생·시간표 관리</button><button data-route="teacher">기존 수업기록</button></div>`:`${chips()}${learningSummary()}${!parent()?btn('학교 일정 올리기','school-event'):''}`}`;
+    return `${notices()}${statusNotice()}<div class="ac-shortcuts">${staff()?routeBtn('오늘 수업','직전 과제부터 알림장까지','academy_class')+routeBtn('과제·질문','제출 확인과 답변','academy_inbox')+routeBtn('학생 성장기록','평가 · 진도 · 학습점수','academy_growth')+routeBtn('더블체크'+(admin()?` · ${doubleCheckSources().filter(i=>!sourceDone(i)).length}`:` · ${doubleCheckSources().filter(i=>!sourceDone(i)).length}`),'확인과 답글','academy_comments'):routeBtn(parent()?'자녀 알림장':'오늘의 학습',parent()?'학습 현황과 선생님 소통':'과제 제출 · 학습 리마인드','academy_learning')+routeBtn('선생님께 질문','사진과 글로 질문하기','academy_inbox')+routeBtn('성장기록','평가와 학습점수','academy_growth')}</div>${staff()?`${reflectionQueue()}<section class="panel">${taskBoard()}</section>${admin()?`<details class="panel"><summary>함께 할 일 · 직원별 업무 배정</summary>${taskBoard(true)}</details>`:''}${calendar()}<div class="ac-footer">${btn('학교 일정 확인','school-events')}${admin()?btn('가족 연결 · 앱 초대','families'):''}<button data-route="admin" ${!admin()?'hidden':''}>기존 학생·시간표 관리</button><button data-route="teacher">기존 수업기록</button></div>`:`${chips()}${learningSummary()}${!parent()?btn('학교 일정 올리기','school-event'):''}`}`;
   }
   function lessonStudents(){
     return sessionDay===day?lessonSessions.filter(s=>admin()||s.teacherIds.includes(uid())||s.lessonType==='보충'):[];
@@ -267,10 +267,16 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     return (!r?.teacher_at&&(admin()||assignedToMe(source.student_id))?btn('담임 확인 ✓','required-teacher',source.id):'')+(!r?.director_at&&admin()?btn('관리자 확인 ✓','required-director',source.id):'');
   }
   function parentCommentSources(){return commentReviews.map(r=>items.find(i=>i.id===r.comment_id)).filter(i=>i&&(admin()||assignedToMe(i.student_id)));}
+  function doubleCheckSources(){
+    const ids=new Set([...requiredReviews.map(r=>r.source_id),...commentReviews.map(r=>r.comment_id),...visibleReflections().filter(r=>r.status!=='draft').map(r=>r.id)]);
+    return items.filter(i=>ids.has(i.id)&&(admin()||assignedToMe(i.student_id)));
+  }
+  const sourceDone=i=>reviewDone(reviewFor(i.id))&&(i.kind!=='reflection'||!!reviewFor(i.id)?.lesson_id);
+  const sourceType=i=>i.kind==='reflection'?'학생 수업기록':i.audience==='parent'?'학부모 글':'학생 질문·대화';
   function parentComments(){
-    const list=parentCommentSources().sort((a,b)=>b.updated_at.localeCompare(a.updated_at));
-    const filtered=list.filter(i=>(commentFilter!=='pending'||!reviewDone(reviewFor(i.id)))&&(commentFilter!=='teacher'||!reviewFor(i.id)?.teacher_at)&&(commentFilter!=='director'||!reviewFor(i.id)?.director_at)&&(!commentSearch||[name(i.student_id),i.body.text].join(' ').includes(commentSearch)));
-    return toolbar('학부모 코멘트','담임과 관리자가 모두 확인해야 알림에서 사라집니다. 답글을 쓰면 작성한 역할의 확인이 자동 처리됩니다.',btn('새로고침','reload'))+statusNotice()+`<div class="toolbar"><input data-comment-search placeholder="학생 이름·내용 검색" value="${h(commentSearch)}"/><select data-comment-filter>${opts([['all','전체'],['pending','미처리'],['teacher','담임 미확인'],['director','관리자 미확인']],commentFilter)}</select></div>`+filtered.map(i=>`<article class="panel" id="comment-${i.id}"><div class="between"><strong>${h(name(i.student_id))} · ${h(i.body.author_name||'학부모')}</strong><small>${h(journalTime(i.created_at))}</small></div><p class="notice-copy">${h(i.body.text||'')}</p><div class="toolbar">${reviewStatus(i)}${reviewActions(i)}${btn('답글 달기','comment-reply',i.id)}${btn('대화 보기','thread',i.kind==='question'?i.id:i.body.thread)}</div></article>`).join('')+(filtered.length?'':empty('학부모 코멘트가 없습니다.'));
+    const list=doubleCheckSources().sort((a,b)=>b.updated_at.localeCompare(a.updated_at));
+    const filtered=list.filter(i=>(commentFilter!=='pending'||!sourceDone(i))&&(commentFilter!=='teacher'||!reviewFor(i.id)?.teacher_at)&&(commentFilter!=='director'||!reviewFor(i.id)?.director_at)&&(!commentSearch||[name(i.student_id),i.body.text,i.body.learned,i.body.assignment].join(' ').includes(commentSearch)));
+    return toolbar('더블체크','학생·학부모 소통, 담임과 관리자가 함께 확인합니다.',btn('새로고침','reload'))+statusNotice()+`<div class="toolbar"><input data-comment-search placeholder="학생 이름·내용 검색" value="${h(commentSearch)}"/><select data-comment-filter>${opts([['pending','확인 필요'],['all','전체 기록'],['teacher','담임 미확인'],['director','관리자 미확인']],commentFilter)}</select></div>`+filtered.map(i=>`<article class="panel" id="comment-${i.id}"><div class="between"><strong>${h(name(i.student_id))} · ${sourceType(i)}</strong><small>${h(journalTime(i.created_at))}</small></div>${i.kind==='reflection'?reflectionText(i):'<p class="notice-copy">'+h(i.body.text||'')+'</p>'}<div class="toolbar">${reviewStatus(i)}${reviewActions(i)}${i.kind==='reflection'?btn(reviewFor(i.id)?.lesson_id?'알림장 확인·수정':'일지 작성','reflection-lesson',i.id):btn('답글 달기','comment-reply',i.id)+btn('대화 보기','review-thread',i.id)}</div></article>`).join('')+(filtered.length?'':empty('확인할 글이 없습니다. 전체 기록에서 처리한 글을 볼 수 있습니다.'));
   }
   function inbox(){
     const qs=rows('question').filter(i=>staff()||i.student_id===current());
@@ -313,8 +319,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const events=[];
     for(const r of visibleReflections().filter(r=>r.status!=='draft'&&(admin()||assignedToMe(r.student_id))&&!(reviewDone(reviewFor(r.id))&&reviewFor(r.id)?.lesson_id)))events.push({at:r.updated_at,title:name(r.student_id)+' · 학생 수업기록',copy:`<label class="ac-notification-select"><input type="checkbox" data-reflection-select="${h(r.id)}" aria-label="${h(name(r.student_id))} 알림에서 일지 선택" ${reflectionSelection.has(r.id)?'checked':''}/>일괄 일지에 포함</label>${reflectionText(r)}<div class="toolbar">${reviewStatus(r)}</div>`,actions:btn(reviewFor(r.id)?.lesson_id?'알림장 확인·수정':'일지 작성','reflection-lesson',r.id)+reviewActions(r)});
     for(const r of rows('homework').filter(r=>r.status==='submitted'&&assigned(r.student_id)))events.push({at:r.updated_at,title:name(r.student_id)+' · 과제 제출',copy:`<p>${h(r.title)}</p><p>${h(r.body.description||'')}</p><p>${h(r.body.text||'')}</p>`,actions:btn('제출 검사','homework',r.id)});
-    for(const r of rows('question').filter(r=>r.audience!=='parent'&&['open','answering'].includes(r.status)&&assigned(r.student_id)))events.push({at:r.updated_at,title:name(r.student_id)+' · 질문',copy:`<p>${h(r.title)}</p><p>${h(r.body.text||'')}</p>`,actions:btn('답변','thread',r.id)});
-    for(const r of parentCommentSources().filter(i=>!reviewDone(reviewFor(i.id))))events.push({at:reviewFor(r.id)?.updated_at||r.updated_at,title:name(r.student_id)+' · 학부모 코멘트',copy:`<p>${h(r.body.text||'')}</p><div class="toolbar">${reviewStatus(r)}</div>`,actions:reviewActions(r)+btn('답글','comment-reply',r.id)});
+    for(const r of rows('question').filter(r=>r.audience!=='parent'&&['open','answering'].includes(r.status)&&assigned(r.student_id)&&!reviewFor(r.id)))events.push({at:r.updated_at,title:name(r.student_id)+' · 질문',copy:`<p>${h(r.title)}</p><p>${h(r.body.text||'')}</p>`,actions:btn('답변','thread',r.id)});
+    for(const r of doubleCheckSources().filter(i=>i.kind!=='reflection'&&!sourceDone(i)))events.push({at:reviewFor(r.id)?.updated_at||r.updated_at,title:name(r.student_id)+' · '+sourceType(r),copy:`<p>${h(r.body.text||'')}</p><div class="toolbar">${reviewStatus(r)}</div>`,actions:reviewActions(r)+btn('답글','comment-reply',r.id)});
     events.sort((a,b)=>String(b.at).localeCompare(String(a.at)));
     return `<aside class="ac-notification-rail" aria-label="알림 목록"><div class="between"><strong>🔔 알림 · 확인할 일 ${events.length}</strong>${btn('새로고침','reload')}</div><div class="toolbar">${btn(`선택 ${reflectionSelection.size}건 일괄 일지 작성`,'reflections-batch')}</div><div class="ac-notification-list">${events.map(n=>`<article><strong>${h(n.title)}</strong><div class="ac-reflection-copy">${n.copy}</div><small>${n.at?h(new Date(n.at).toLocaleString('ko-KR')):''}</small><div class="toolbar">${n.actions}</div></article>`).join('')||empty('확인할 알림이 없습니다.')}</div></aside>`;
   }
@@ -351,10 +357,11 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   }
   function assessmentForm(i){return form(i&&i.body.category!=='단원평가'?'기존 평가 수정':'단원평가 기록','assessment',studentSelect(i?.student_id)+gradeFields(i?.body||{},i?.student_id||current())+input('평가명','title',i?.title||'')+input('시험일','day',i?.day||day,'date')+`<input type="hidden" name="category" value="${h(i?.body.category||'단원평가')}"/>`+`<div class="grid two">${input('취득 점수·정답 수','score',i?.body.score??'','number')}${input('만점·전체 문항 수','total',i?.body.total??100,'number')}</div>`+input('단원 (선택)','unit',i?.body.unit||'')+`<label><input name="first_attempt" type="checkbox" ${i?.body.first_attempt===false?'':'checked'}/>첫 응시 성적 (재시험은 보너스 제외)</label>`+area('메모','note',i?.body.note||''),i?.id||'');}
   function homeworkPanel(i){return form(h(i.title),'homework',`<p>${h(i.body.description||'')}</p><p>${badge(i.status)} ${h(i.body.feedback||'')}</p><div class="toolbar">${filesHtml(i.body.files)}</div>${staff()?area('보완할 내용','feedback',i.body.feedback||''):!parent()?fileInput():''}`,i.id,staff()?'<button name="intent" value="returned">보완 요청</button><button name="intent" value="checked" class="primary">검사 완료</button>':!parent()&&i.status!=='checked'?'<button class="primary" name="intent" value="submitted">사진 제출</button>':btn('닫기','close'));}
-  function threadPanel(i){
-    const replies=rows('reply').filter(r=>r.body.thread===i.id).sort((a,b)=>a.created_at.localeCompare(b.created_at));
-    const message=rows(parent()?'parent_message':'student_message').find(r=>r.body.lesson_id===i.id);
-    return form(i.kind==='lesson'?'알림장 · 소통':h(i.title),'reply',`<p class="notice-copy">${h(i.body.text||i.body.content||'')}</p>${i.kind==='lesson'?`<p>과제: ${h(i.body.assignment||'')}</p>${i.body.reflection?`<p>학생이 배운 점: ${h(i.body.reflection.learned||'')}</p>`:''}<p>${h(i.body.assessments||'')}</p><p class="notice-copy">${h(message?.body.text||'')}</p>`:''}<div>${filesHtml(i.body.files)}</div>${replies.map(r=>`<article class="ac-reply"><small>${h(replyAuthor(r))} · ${h(journalTime(r.created_at))}</small><p>${h(r.body.text)}</p></article>`).join('')}${staff()&&i.kind==='question'?`<div class="toolbar">${btn('내가 답변하기','claim',i.id)}${btn('AI 도움받기','ai-answer',i.id)}${btn('담당 강사에게 넘기기','handoff',i.id)}</div>`:''}`+area(parent()?'학원이나 선생님께 궁금하신 점을 편하게 남겨주세요.':'답변·추가 질문','text')+`<div class="ac-ai-result"></div><input type="hidden" name="audience" value="${i.kind==='lesson'?(parent()?'parent':'student'):i.audience}"/>`,i.id,`<button class="primary">${staff()?'답변 보내기':'글 남기기'}</button>${i.kind==='question'?btn('이해했어요 · 해결','resolve',i.id):''}`);
+  function threadPanel(i, audience=parent()?'parent':'student'){
+    if(i.kind==='question')audience=i.audience;
+    const replies=rows('reply').filter(r=>r.body.thread===i.id&&r.audience===audience).sort((a,b)=>a.created_at.localeCompare(b.created_at));
+    const message=rows(audience==='parent'?'parent_message':'student_message').find(r=>r.body.lesson_id===i.id);
+    return form(i.kind==='lesson'?'알림장 · 소통':h(i.title),'reply',`<p class="notice-copy">${h(i.body.text||i.body.content||'')}</p>${i.kind==='lesson'?`<p>과제: ${h(i.body.assignment||'')}</p>${i.body.reflection?`<p>학생이 배운 점: ${h(i.body.reflection.learned||'')}</p>`:''}<p>${h(i.body.assessments||'')}</p><p class="notice-copy">${h(message?.body.text||'')}</p>`:''}<div>${filesHtml(i.body.files)}</div>${replies.map(r=>`<article class="ac-reply"><small>${h(replyAuthor(r))} · ${h(journalTime(r.created_at))}</small><p>${h(r.body.text)}</p></article>`).join('')}${staff()&&i.kind==='question'?`<div class="toolbar">${btn('내가 답변하기','claim',i.id)}${btn('AI 도움받기','ai-answer',i.id)}${btn('담당 강사에게 넘기기','handoff',i.id)}</div>`:''}`+area(parent()?'학원이나 선생님께 궁금하신 점을 편하게 남겨주세요.':'답변·추가 질문','text')+`<div class="ac-ai-result"></div><input type="hidden" name="audience" value="${h(audience)}"/>`,i.id,`<button class="primary">${staff()?'답변 보내기':'글 남기기'}</button>${i.kind==='question'?btn('이해했어요 · 해결','resolve',i.id):''}`);
   }
   async function polish(source,kind='parentMessage'){
     const {data,error}=await db.functions.invoke('ai-polish',{body:{source,kind}});
@@ -387,13 +394,14 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(a==='comment-check'||a==='comment-director'){
         const result=await db.rpc('academy_check_comment',{p_comment:id,p_director:a==='comment-director'});if(result.error)throw result.error;await load();refresh();return;
       }
-      if(a==='comment-reply'){batchIds.clear();panel=form('학부모 코멘트에 답글','comment-reply',`<p class="notice-copy">${h(i.body.text||'')}</p>`+area('답글','text'),id);}
+      if(a==='comment-reply'){batchIds.clear();panel=form(i.audience==='parent'?'학부모 글에 답글':'학생 글에 답글','comment-reply',`<p class="notice-copy">${h(i.body.text||'')}</p>`+area('답글','text'),id);}
       if(a==='password')panel=form('비밀번호 변경','password',input('새 비밀번호 (4자 이상)','password','','password')+input('새 비밀번호 확인','confirm','','password'));
       if(a==='task'||a==='shared-task')panel=taskForm(a==='shared-task');
       if(a==='reflection'||a==='reflection-session'){if(parent()||staff())return;if(a==='reflection-session')period=id;panel=reflectionForm();}
       if(a==='homework')panel=homeworkPanel(i);
       if(a==='question')panel=form(parent()?'학원·선생님께 문의':'사진으로 질문하기','question',studentSelect()+input('제목','title')+area('어디가 궁금한가요?','text')+fileInput());
       if(a==='thread'||a==='lesson')panel=threadPanel(i);
+      if(a==='review-thread'){const thread=i.kind==='reply'?items.find(t=>t.id===i.body.thread):i;if(!thread)throw new Error('대화 원본을 찾을 수 없습니다.');panel=threadPanel(thread,i.audience);}
       if(a==='grade-add'){
         const grade=document.querySelector('[data-add-grade]')?.value;
         if(!staff()||!schoolGrades.includes(grade))return;
@@ -562,7 +570,9 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(kind==='question')await save({id:requestId('question'),kind:'question',student_id:d.student_id,title:d.title,day,status:'open',audience:parent()?'parent':'student',body:{text:d.text,files:await upload(f)}});
       if(kind==='comment-reply'){
         if(!d.text.trim())throw new Error('답글을 입력해주세요.');
-        await save({id:requestId('comment-reply:'+old.id),kind:'reply',student_id:old.student_id,title:'학부모 코멘트 답글',day:date(),status:'sent',audience:'parent',body:{thread:old.kind==='question'?old.id:old.body.thread,in_reply_to:old.id,text:d.text.trim()}});
+        await save({id:requestId('comment-reply:'+old.id),kind:'reply',student_id:old.student_id,title:'소통 답글',day:date(),status:'sent',audience:old.audience,body:{thread:old.kind==='question'?old.id:old.body.thread,in_reply_to:old.id,text:d.text.trim()}});
+        const question=old.kind==='question'?old:items.find(i=>i.id===old.body.thread&&i.kind==='question');
+        if(question&&staff())await save({...question,status:'answered',assignee_id:uid()});
       }
       if(kind==='reply'){
         if(!d.text.trim())throw new Error('내용을 입력해주세요.');await save({id:requestId('reply:'+old.id),kind:'reply',student_id:old.student_id,title:'답글',day,status:'sent',audience:d.audience,body:{thread:old.id,text:d.text,author_name:c().session.name}});

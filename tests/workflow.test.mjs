@@ -182,4 +182,15 @@ await as(T);await fails(()=>ack(dualComment.id,true),/관리자/);
 await db.exec('reset role');await db.query('update profiles set active=false where id=$1',[D]);await as(D);await fails(()=>ack(dualComment.id,false),/직원만/);
 console.log('PASS: only active admin/deputy can override teacher acknowledgement, both lanes remain independent and record actual actor');
 
+await db.exec('reset role');await db.exec(fs.readFileSync(new URL('../supabase/migrations/202609300004_student_dialogue_reviews.sql',import.meta.url),'utf8'));
+await as(S);let studentQ=await save({kind:'question',student_id:S,title:'학생 질문',status:'open',audience:'student',body:{text:'분수 질문'}});
+await as(T);assert.equal((await review(studentQ.id)).teacher_at,null);
+await save({kind:'reply',student_id:S,title:'답변',status:'sent',audience:'student',body:{thread:studentQ.id,text:'풀이 확인',in_reply_to:studentQ.id}});
+assert.ok((await review(studentQ.id)).teacher_at);assert.equal((await review(studentQ.id)).director_at,null);
+await as(A);await ack(studentQ.id,true);assert.ok((await review(studentQ.id)).director_at);
+await as(S);studentQ=await save({...studentQ,body:{text:'추가 질문 수정'}});
+await as(A);assert.equal((await review(studentQ.id)).teacher_at,null);assert.equal((await review(studentQ.id)).director_at,null);
+await as(P);assert.equal((await db.query('select * from academy_items where id=$1',[studentQ.id])).rows.length,0);
+console.log('PASS: student question/reply double-check, edited question reopens both roles, parent cannot read student conversation');
+
 await db.close();
