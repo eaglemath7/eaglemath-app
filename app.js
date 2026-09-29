@@ -1,5 +1,5 @@
 import { authPassword } from './auth-password.js?v=1';
-import { createAcademy } from "./academy.js?v=26";
+import { createAcademy } from "./academy.js?v=27";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
@@ -159,7 +159,9 @@ function showMessage(message) {
 // =========================================================
 async function loadAllData() {
   if (session?.role === "parent") {
-    const [events, kids] = await Promise.all([supabase.from("academic_events").select("*"), supabase.rpc("academy_children")]);
+    const [events, kids, staffDirectory] = await Promise.all([supabase.from("academic_events").select("*"), supabase.rpc("academy_children"), supabase.from("staff_directory").select("id,name,role")]);
+    state.teachers = (staffDirectory.data || []).map(r => ({id:r.id,name:r.name,role:r.role,active:true}));
+    syncStatus = [events,kids,staffDirectory].some(r=>r.error) ? "일부 정보 연결 실패 · 새로고침해주세요" : `Supabase 연결됨 · ${formatKoreanDate(todayIso())}`;
     state.academicEvents = (events.data || []).map(r => ({id:r.id,title:r.title,startDate:r.start_date,endDate:r.end_date,type:r.type,visibility:r.visibility,note:r.note||""}));
     state.students = (kids.data || []).map(r => ({id:r.id,name:r.name,schoolYear:r.school_year,schoolName:r.school_name}));
     return;

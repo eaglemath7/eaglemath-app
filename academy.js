@@ -32,10 +32,26 @@ export function reflectionLessonBody(body={}) {
 export function lessonAISource(body) {
   return [['교재',body.material],['단원',body.unit],['공부한 내용',body.content],['오늘 알게 된 것',body.learned],['과제',body.assignment],['학생 소감',body.feeling],['관찰 키워드',body.keywords],['수업태도',body.attitude],['테스트',body.assessments],['학부모 메시지 초안',body.parent_message]].filter(([,v])=>v).map(([k,v])=>k+': '+v).join('\n');
 }
+export function journalTime(value) {
+  if(!value)return '';
+  const time=new Date(value);
+  return Number.isNaN(time.getTime())?'':new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(time);
+}
+export function lessonSessionStatus(isParent, reflection, published) {
+  return isParent?(published?'알림장 게시 완료':'알림장 준비 중'):(reflection?.status||'작성 전');
+}
+export function journalCalendarDays(month) {
+  const [year, number]=month.split('-').map(Number);
+  const first=new Date(Date.UTC(year,number-1,1));
+  const count=Math.ceil((first.getUTCDay()+new Date(Date.UTC(year,number,0)).getUTCDate())/7)*7;
+  return Array.from({length:count},(_,index)=>new Date(Date.UTC(year,number-1,1-first.getUTCDay()+index)).toISOString().slice(0,10));
+}
 // Daily workflow UI. All mutations use permission-checked transactional database RPCs.
 export function createAcademy({ db, context, refresh, legacyHome, legacyStudent, notices, holiday=()=>'', escape: h }) {
   let items = [], children = [], points = [], ready = false, problem = '', loadedFor = '', panel = '', busy = false;
   let selected = new Set(), day = date(), period = '', student = '', month = date().slice(0,7), rankMonths=1, rankStart='',rankEnd='', rankings=[];
+  let journalDay=date(),journalMonth=date().slice(0,7);
+  const parentCommentDrafts=new Map();
   let taskArchives=[];
   let lessonSessions=[],sessionDay='';
   let draggingTask=null;
@@ -178,6 +194,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     }).join('')}</div>`,'','<button type="submit" name="intent" value="draft" class="primary">학생별 일지 초안 일괄 저장</button><button type="submit" name="intent" value="ai-draft">AI 문장 작성 후 초안 일괄 저장</button>');
   }
   function home(){
+    if(parent())return `${notices()}${statusNotice()}${chips()}${parentLearningSummary()}`;
     return `${notices()}${statusNotice()}<div class="ac-shortcuts">${staff()?routeBtn('오늘 수업','직전 과제부터 알림장까지','academy_class')+routeBtn('과제·질문','제출 확인과 답변','academy_inbox')+routeBtn('학생 성장기록','평가 · 진도 · 학습점수','academy_growth')+routeBtn('학부모 코멘트'+(admin()?` · ${commentNotifications.filter(n=>!n.checked_at).length}`:` · ${commentReviews.filter(r=>!r.teacher_at).length}`),'확인과 답글','academy_comments'):routeBtn(parent()?'자녀 알림장':'오늘의 학습',parent()?'학습 현황과 선생님 소통':'과제 제출 · 학습 리마인드','academy_learning')+routeBtn('선생님께 질문','사진과 글로 질문하기','academy_inbox')+routeBtn('성장기록','평가와 학습점수','academy_growth')}</div>${staff()?`${reflectionQueue()}<section class="panel">${taskBoard()}</section>${admin()?`<details class="panel"><summary>함께 할 일 · 직원별 업무 배정</summary>${taskBoard(true)}</details>`:''}${calendar()}<div class="ac-footer">${btn('학교 일정 확인','school-events')}${admin()?btn('가족 연결 · 앱 초대','families'):''}<button data-route="admin" ${!admin()?'hidden':''}>기존 학생·시간표 관리</button><button data-route="teacher">기존 수업기록</button></div>`:`${chips()}${learningSummary()}${!parent()?btn('학교 일정 올리기','school-event'):''}`}`;
   }
   function lessonStudents(){
@@ -186,7 +203,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   function studentSessionList(){return sessionDay===date()?lessonSessions.filter(s=>s.studentId===current()):[];}
   function studentSessionsPanel(){
     const list=studentSessionList();
-    return `<section class="panel"><h3>오늘의 수업 · 보충</h3>${list.map(s=>{const own=rows('reflection').find(r=>r.student_id===current()&&r.day===date()&&r.body.period===s.period);return `<div class="ac-line"><span><strong>${h(s.lessonType==='보충'?s.period:'정규 '+s.period)}</strong>${own?badge(own.status):badge('작성 전')}</span>${!parent()?btn(own?'수업기록 확인·수정':'오늘 학습 3단계 작성','reflection-session',s.period):''}</div>`;}).join('')||empty('오늘 배정된 수업이 없습니다.')}</section>`;
+    return `<section class="panel"><h3>오늘의 수업 · 보충</h3>${list.map(s=>{const own=rows('reflection').find(r=>r.student_id===current()&&r.day===date()&&r.body.period===s.period);return `<div class="ac-line"><span><strong>${h(s.lessonType==='보충'?s.period:'정규 '+s.period)}</strong>${badge(lessonSessionStatus(parent(),own,rows('lesson').some(i=>i.student_id===current()&&i.day===date()&&i.status==='published'&&i.body.period===s.period)))}</span>${!parent()?btn(own?'수업기록 확인·수정':'오늘 학습 3단계 작성','reflection-session',s.period):''}</div>`;}).join('')||empty('오늘 배정된 수업이 없습니다.')}</section>`;
   }
   function classView(){
     const schedules=lessonStudents();const periods=[...new Set(schedules.map(s=>s.period))];if(!periods.includes(period))period=periods[0]||'';
@@ -209,7 +226,27 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const content=days.map((d,index)=>`<details class="ac-history-day" ${index===0?'open':''}><summary>${h(d)}</summary>${legacy.filter(r=>r.lessonDate===d).map(r=>`<article class="ac-history-entry"><h4>수업 기록 · ${h(r.period||'')}${r.isDraft?' · 초안':''}</h4>${line('교재·단원',[r.material,r.unit].filter(Boolean).join(' · '))}${line('공부한 내용',r.content)}${line('과제',r.assignment)}${line('출결',r.attendance)}${line('과제 확인',r.homework)}${line('수업 메모',r.focus)}${line('테스트',r.testName)}${line('학부모 알림장',r.parentMessage)}${line('학생 알림장',r.studentMessage)}</article>`).join('')}${history.filter(i=>i.day===d).map(i=>`<article class="ac-history-entry"><h4>${{lesson:'수업 알림장',homework:'과제',reflection:'학생 학습 리마인드',attendance:'출결·수업태도'}[i.kind]} ${badge(({present:'출석',late:'지각',absent:'결석'})[i.status]||i.status)}</h4>${i.kind==='lesson'?line('교재·단원',[i.body.material,i.body.unit].filter(Boolean).join(' · '))+line('공부한 내용',i.body.content)+line('과제',i.body.assignment)+line('학부모 알림장',rows('parent_message').find(m=>m.body.lesson_id===i.id)?.body.text)+line('학생 알림장',rows('student_message').find(m=>m.body.lesson_id===i.id)?.body.text):i.kind==='homework'?line('과제',i.title)+line('안내',i.body.description)+line('검사 메모',i.body.feedback)+filesHtml(i.body.files):i.kind==='reflection'?line('공부한 내용',[i.body.material,i.body.unit,i.body.pages].filter(Boolean).join(' · '))+line('배운 점',i.body.learned)+line('과제',i.body.assignment)+line('느낀 점',i.body.feeling):line('수업 시간',i.body.period)+line('수업태도',i.body.attitude)}</article>`).join('')}</details>`).join('');
     return `<div class="ac-overlay"><section class="ac-dialog" role="dialog" aria-modal="true" aria-label="${h(name(id))} 학습기록"><div class="between"><h2>${h(name(id))} 학습기록</h2>${btn('닫기','close')}</div><p class="muted small">날짜를 누르면 수업 내용·과제·출결·알림장을 확인할 수 있습니다.</p>${content||empty('등록된 학습기록이 없습니다.')}</section></div>`;
   }
+  function replyAuthor(reply){
+    if(reply.owner_id===uid())return parent()?'학부모님(나)':'나';
+    const writer=c().state.teachers.find(t=>t.id===reply.owner_id);
+    if(writer)return `${writer.name} ${{admin:'원장',deputy:'부원장',teacher:'선생님',assistant:'조교'}[writer.role]||'선생님'}`;
+    return reply.body.author_name||'작성자';
+  }
+  function parentLearningSummary(){
+    const id=current(), lessons=rows('lesson').filter(i=>i.student_id===id&&i.status==='published');
+    const legacy=legacyRecords.filter(r=>r.student_id===id);
+    const dates=new Set([...lessons.map(i=>i.day),...legacy.map(r=>r.lesson_date)]);
+    const detail=(label,value)=>value?`<p class="notice-copy"><span class="muted">${label}</span> <strong>${h(value)}</strong></p>`:'';
+    const cards=lessons.filter(i=>i.day===journalDay).map(i=>{
+      const message=rows('parent_message').find(m=>m.body.lesson_id===i.id);
+      const replies=rows('reply').filter(r=>r.body.thread===i.id&&r.audience==='parent').sort((a,b)=>a.created_at.localeCompare(b.created_at));
+      return `<article class="panel ac-parent-journal"><h3>${h(i.body.period||'수업 알림장')} · ${h(i.title)}</h3>${detail('교재·단원',[i.body.material,i.body.unit].filter(Boolean).join(' · '))}${detail('페이지',i.body.pages)}${detail('배운 내용',i.body.learned||i.body.reflection?.learned)}<p class="notice-copy">${h(message?.body.text||i.body.content||'')}</p>${detail('과제',i.body.assignment)}${detail('테스트',i.body.assessments)}<div class="toolbar">${filesHtml(i.body.files)}</div><h4>학부모 코멘트</h4>${replies.map(r=>`<article class="ac-reply"><small>${h(replyAuthor(r))} · ${h(journalTime(r.created_at))}</small><p class="notice-copy">${h(r.body.text||'')}</p></article>`).join('')}<form data-ac-form="reply" data-id="${h(i.id)}">${area('학원이나 선생님께 궁금하신 점을 편하게 남겨주세요.','text',parentCommentDrafts.get(i.id)||'','수업, 과제, 아이의 근황 등 편하게 적어주세요.')}<input type="hidden" name="audience" value="parent"/><p class="ac-form-status" role="status"></p><button class="primary" type="submit">코멘트 남기기</button></form></article>`;
+    }).join('')+legacy.filter(r=>r.lesson_date===journalDay).map(r=>`<article class="panel"><h3>수업 알림장</h3><p class="notice-copy">${h(r.parent_message||r.content||'')}</p>${detail('과제',r.assignment)}${btn('이 수업에 대해 문의하기','question')}</article>`).join('');
+    const latest=[...dates].sort().at(-1);
+    return `<div class="ac-parent-layout"><section class="panel ac-parent-calendar"><div class="between"><h3>학습 달력</h3>${btn('오늘','journal-today')}</div><div class="between">${btn('‹','journal-prev')}<strong>${h(journalMonth)}</strong>${btn('›','journal-next')}</div><div class="ac-week">${['일','월','화','수','목','금','토'].map(d=>`<span>${d}</span>`).join('')}</div><div class="ac-days">${journalCalendarDays(journalMonth).map((d,index)=>`<button type="button" data-ac="journal-day" data-id="${d}" aria-label="${d}${dates.has(d)?' 알림장 있음':''}" aria-pressed="${d===journalDay}" class="${d===journalDay?'selected ':''}${d.slice(0,7)!==journalMonth?'ac-outside-month ':''}${index%7===0||holiday(d)?'ac-sunday':index%7===6?'ac-saturday':''}">${Number(d.slice(-2))}${dates.has(d)?'<small>● 알림장</small>':''}</button>`).join('')}</div><p class="muted small">날짜를 누르면 그날의 수업 내용과 과제를 볼 수 있습니다.</p>${latest?btn('최근 알림장 보기','journal-day',latest):''}<div class="ac-parent-contact">${btn('학원·선생님께 문의하기','question')}<button data-route="academy_inbox">문의·답변 확인</button></div></section><section><h2 class="ac-journal-date">${h(journalDay)} · ${h(name(id))}</h2>${cards||`<section class="panel">${empty('이 날짜에 게시된 알림장이 없습니다. 다른 날짜를 선택해주세요.')}${btn('학원·선생님께 문의하기','question')}</section>`}</section></div>`;
+  }
   function learningSummary(){
+    if(parent())return parentLearningSummary();
     const id=current();const hw=rows('homework').filter(i=>i.student_id===id);
     const lessons=rows('lesson').filter(i=>i.student_id===id);const plans=rows('class_plan').filter(i=>i.student_id===id&&i.day===date());
     return `${studentSessionsPanel()}${!parent()&&plans.length?`<section class="panel"><h3>오늘 공통 수업 안내</h3>${plans.map(p=>`<strong>${h(p.body.material)} · ${h(p.body.unit)}</strong><p class="notice-copy">${h(p.body.content)}</p><p>과제: ${h(p.body.assignment)}</p>`).join('')}</section>`:''}<section class="panel"><div class="between"><h3>${parent()?'자녀의 과제':'내 과제'}</h3>${!parent()?btn('오늘 학습 리마인드','reflection'):''}</div>${hw.map(i=>`<div class="ac-line"><div><strong>${h(i.title)}</strong><small>${i.due_at?h(i.due_at.slice(0,16).replace('T',' '))+' 마감':''}</small>${badge(i.status==='submitted'?'제출 완료 · 검사 대기':i.status)}</div>${btn(parent()?'보기':'사진 제출·확인','homework',i.id)}</div>`).join('')||empty('배정된 과제가 없습니다.')}</section><section class="panel"><h3>최근 알림장</h3>${lessons.map(i=>`<article class="home-notice"><div class="between"><strong>${i.day} · ${h(i.title)}</strong>${btn(parent()?'내용·코멘트':'내용·대화','lesson',i.id)}</div><p class="notice-copy">${h(i.body.content||'')}</p></article>`).join('')||empty('아직 게시된 새 알림장이 없습니다.')}<details><summary>이전 알림장 보기</summary>${legacyRecords.filter(r=>r.student_id===id).map(r=>`<article class="home-notice"><strong>${h(r.lesson_date)}</strong><p class="notice-copy">${h(r.content||'')}</p><p>과제: ${h(r.assignment||'')}</p><p>${h(parent()?r.parent_message||'':r.student_message||'')}</p></article>`).join('')||empty('이전 알림장이 없습니다.')}</details></section>`;
@@ -303,7 +340,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   function threadPanel(i){
     const replies=rows('reply').filter(r=>r.body.thread===i.id).sort((a,b)=>a.created_at.localeCompare(b.created_at));
     const message=rows(parent()?'parent_message':'student_message').find(r=>r.body.lesson_id===i.id);
-    return form(i.kind==='lesson'?'알림장 · 소통':h(i.title),'reply',`<p class="notice-copy">${h(i.body.text||i.body.content||'')}</p>${i.kind==='lesson'?`<p>과제: ${h(i.body.assignment||'')}</p>${i.body.reflection?`<p>학생이 배운 점: ${h(i.body.reflection.learned||'')}</p>`:''}<p>${h(i.body.assessments||'')}</p><p class="notice-copy">${h(message?.body.text||'')}</p>`:''}<div>${filesHtml(i.body.files)}</div>${replies.map(r=>`<article class="ac-reply"><small>${h(r.owner_id===uid()?'나':r.body.author_name||'선생님')} · ${r.created_at.slice(0,16).replace('T',' ')}</small><p>${h(r.body.text)}</p></article>`).join('')}${staff()&&i.kind==='question'?`<div class="toolbar">${btn('내가 답변하기','claim',i.id)}${btn('AI 도움받기','ai-answer',i.id)}${btn('담당 강사에게 넘기기','handoff',i.id)}</div>`:''}`+area('답변·추가 질문','text')+`<div class="ac-ai-result"></div><input type="hidden" name="audience" value="${i.kind==='lesson'?(parent()?'parent':'student'):i.audience}"/>`,i.id,`<button class="primary">${staff()?'답변 보내기':'글 남기기'}</button>${i.kind==='question'?btn('이해했어요 · 해결','resolve',i.id):''}`);
+    return form(i.kind==='lesson'?'알림장 · 소통':h(i.title),'reply',`<p class="notice-copy">${h(i.body.text||i.body.content||'')}</p>${i.kind==='lesson'?`<p>과제: ${h(i.body.assignment||'')}</p>${i.body.reflection?`<p>학생이 배운 점: ${h(i.body.reflection.learned||'')}</p>`:''}<p>${h(i.body.assessments||'')}</p><p class="notice-copy">${h(message?.body.text||'')}</p>`:''}<div>${filesHtml(i.body.files)}</div>${replies.map(r=>`<article class="ac-reply"><small>${h(replyAuthor(r))} · ${h(journalTime(r.created_at))}</small><p>${h(r.body.text)}</p></article>`).join('')}${staff()&&i.kind==='question'?`<div class="toolbar">${btn('내가 답변하기','claim',i.id)}${btn('AI 도움받기','ai-answer',i.id)}${btn('담당 강사에게 넘기기','handoff',i.id)}</div>`:''}`+area(parent()?'학원이나 선생님께 궁금하신 점을 편하게 남겨주세요.':'답변·추가 질문','text')+`<div class="ac-ai-result"></div><input type="hidden" name="audience" value="${i.kind==='lesson'?(parent()?'parent':'student'):i.audience}"/>`,i.id,`<button class="primary">${staff()?'답변 보내기':'글 남기기'}</button>${i.kind==='question'?btn('이해했어요 · 해결','resolve',i.id):''}`);
   }
   async function polish(source,kind='parentMessage'){
     const {data,error}=await db.functions.invoke('ai-polish',{body:{source,kind}});
@@ -322,6 +359,9 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(a==='reload'){await load();refresh();return;}
       if(a==='task-history'){panel=taskHistory(id==='true');refresh();return;}
       if(a==='task-archive'||a==='task-restore'){busy=true;b.disabled=true;const r=await db.rpc('academy_archive_task',{p_id:id,p_expected:i.updated_at,p_restore:a==='task-restore'});if(r.error)throw r.error;await load();if(a==='task-restore')panel='';refresh();return;}
+      if(a==='journal-day'){journalDay=id;journalMonth=id.slice(0,7);refresh();return;}
+      if(a==='journal-today'){journalDay=date();journalMonth=journalDay.slice(0,7);refresh();return;}
+      if(a==='journal-prev'||a==='journal-next'){const [y,m]=journalMonth.split('-').map(Number);journalMonth=new Date(Date.UTC(y,m-1+(a==='journal-next'?1:-1),1)).toISOString().slice(0,7);refresh();return;}
       if(a==='child'){student=id;refresh();return;}
       if(a==='period'){period=id;selected.clear();refresh();return;}
       if(a==='clear'){selected.clear();refresh();return;}
@@ -337,7 +377,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(a==='task'||a==='shared-task')panel=taskForm(a==='shared-task');
       if(a==='reflection'||a==='reflection-session'){if(parent()||staff())return;if(a==='reflection-session')period=id;panel=reflectionForm();}
       if(a==='homework')panel=homeworkPanel(i);
-      if(a==='question')panel=form(parent()?'선생님께 문의':'사진으로 질문하기','question',studentSelect()+input('제목','title')+area('어디가 궁금한가요?','text')+fileInput());
+      if(a==='question')panel=form(parent()?'학원·선생님께 문의':'사진으로 질문하기','question',studentSelect()+input('제목','title')+area('어디가 궁금한가요?','text')+fileInput());
       if(a==='thread'||a==='lesson')panel=threadPanel(i);
       if(a==='grade-add'){
         const grade=document.querySelector('[data-add-grade]')?.value;
@@ -511,6 +551,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       }
       if(kind==='reply'){
         if(!d.text.trim())throw new Error('내용을 입력해주세요.');await save({id:requestId('reply:'+old.id),kind:'reply',student_id:old.student_id,title:'답글',day,status:'sent',audience:d.audience,body:{thread:old.id,text:d.text,author_name:c().session.name}});
+        parentCommentDrafts.delete(old.id);
         if(staff()&&old.kind==='question')await save({...old,status:'answered',assignee_id:uid()});
       }
       if(kind==='handoff')await save({...old,assignee_id:d.assignee,status:'open'});
@@ -618,10 +659,11 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     if(e.target.matches('[data-ac-rank-end]'))rankEnd=e.target.value;
   },true);
   document.addEventListener('input',e=>{
+    const comment=e.target.closest('.ac-parent-journal form');if(comment&&e.target.name==='text')parentCommentDrafts.set(comment.dataset.id,e.target.value);
     const f=e.target.closest('[data-ac-form="reflection"]');if(!f)return;clearTimeout(draftTimer);draftTimer=setTimeout(()=>{try{localStorage.setItem(draftKey('reflection'),JSON.stringify(Object.fromEntries(new FormData(f))));f.querySelector('.ac-form-status').textContent='이 기기에 임시저장됨 · 제출 버튼을 눌러 선생님께 보내주세요.';}catch{f.querySelector('.ac-form-status').textContent='임시저장하지 못했습니다. 임시저장 버튼을 눌러주세요.';}},500);
   });
   // Refresh without interrupting forms or selecting students.
   const canAutoRefresh=()=>uid()&&document.visibilityState==='visible'&&!c().modalOpen&&!panel&&!busy&&!draggingTask&&!selected.size&&!reflectionSelection.size&&!document.activeElement?.closest('form')&&!document.querySelector('[data-ac-form="school-scores"]');
   setInterval(()=>{if(canAutoRefresh())load().then(()=>{if(canAutoRefresh())refresh();});},30000);
-  return {render,load,reset(){clearTaskDrag();commentReviews=[];commentNotifications=[];commentsReady=false;addedGrades.clear();items=[];children=[];points=[];loadedFor='';panel='';selected.clear();reflectionSelection.clear();reflectionBatch=[];lessonSessions=[];sessionDay='';student='';period='';}};
+  return {render,load,reset(){parentCommentDrafts.clear();journalDay=date();journalMonth=journalDay.slice(0,7);clearTaskDrag();commentReviews=[];commentNotifications=[];commentsReady=false;addedGrades.clear();items=[];children=[];points=[];loadedFor='';panel='';selected.clear();reflectionSelection.clear();reflectionBatch=[];lessonSessions=[];sessionDay='';student='';period='';}};
 }

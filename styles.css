@@ -956,3 +956,15 @@ th {
 .ac-makeup-picker{display:grid;grid-template-columns:repeat(auto-fill,minmax(125px,1fr));gap:6px;max-height:310px;overflow:auto}
 .ac-makeup-picker label{display:flex;align-items:center;gap:5px;padding:6px;border:1px solid var(--line);border-radius:5px;color:var(--ink);font-size:12px}
 .ac-makeup-picker label[hidden]{display:none}.ac-makeup-picker small{color:var(--muted);font-size:11px}
+
+/* Parent journal: calendar navigation and full daily content. */
+.ac-parent-layout{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:16px;align-items:start}
+.ac-parent-calendar .ac-days button{min-height:52px;padding:6px;font-size:13px}
+.ac-parent-calendar .ac-days small{font-size:10px}
+.ac-parent-calendar .ac-week span{padding:10px 2px}
+.ac-parent-contact{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.ac-parent-journal h3{font-size:16px;overflow-wrap:anywhere}
+.ac-parent-journal form{border-top:1px solid var(--border,#e0e3ea);padding-top:14px;margin-top:14px}
+.ac-parent-journal textarea{width:100%;box-sizing:border-box}
+.ac-journal-date{font-size:17px;margin:0 0 12px}
+@media(max-width:760px){.ac-parent-layout{grid-template-columns:1fr}.ac-parent-calendar .ac-days button{min-height:44px}}
