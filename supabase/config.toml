@@ -2,3 +2,7 @@
 # active staff membership. The legacy-secret-only gateway rejects newer JWTs.
 [functions.ai-polish]
 verify_jwt = false
+
+# This function separately verifies an active admin/deputy through Auth.
+[functions.admin-reset-password]
+verify_jwt = false

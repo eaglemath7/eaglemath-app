@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import {stripTypeScriptTypes} from 'node:module';
+const code=fs.readFileSync('supabase/functions/admin-reset-password/index.ts','utf8').replace(/^import .*;\n/m,'');
+let handler,role='student',sent,changeFlag;
+const client={auth:{getUser:async token=>({data:{user:token==='session'?{id:'admin'}:null}}),admin:{updateUserById:async(id,body)=>{sent={id,...body};return {error:null};}}},from:()=>({select:()=>({eq:()=>({single:async()=>({data:{role,active:true}})})}),update:body=>({eq:async()=>{changeFlag=body;return {error:null};}})})};
+vm.runInNewContext(stripTypeScriptTypes(code),{Request,Response,Deno:{env:{get:()=> 'mock'},serve:f=>handler=f},createClient:()=>client});
+const call=(token,pin)=>handler(new Request('https://example.test',{method:'POST',headers:{Authorization:'Bearer '+token},body:JSON.stringify({userId:'student',newPassword:pin})}));
+assert.equal((await call('wrong','1234')).status,401);assert.equal(sent,undefined);
+assert.equal((await call('session','1234')).status,403);assert.equal(sent,undefined);
+role='admin';assert.equal((await call('session','123')).status,400);assert.equal(sent,undefined);
+assert.equal((await call('session','1234')).status,200);assert.equal(sent.password,'eaglemath:short:v1:1234');assert.equal(changeFlag.must_change_password,false);
+await call('session','eaglemath:short:v1:1234');assert.equal(sent.password,'eaglemath:short:v1:1234');
+await call('session','123456');assert.equal(sent.password,'123456');
+console.log('PASS: reset requires valid admin, invalid/short input denied, 1234 consistent with app login, no double encoding, no forced password change');

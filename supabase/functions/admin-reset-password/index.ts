@@ -31,7 +31,7 @@ async function requireStaff(req: Request) {
     auth: { persistSession: false },
   });
 
-  const { data: userData, error: userError } = await userClient.auth.getUser();
+  const { data: userData, error: userError } = await userClient.auth.getUser(token);
   if (userError || !userData?.user) return { error: "invalid token", status: 401 } as const;
 
   const { data: profile, error: profileError } = await userClient
@@ -66,11 +66,11 @@ Deno.serve(async (req) => {
     }
 
     const { error: pwError } = await adminClient.auth.admin.updateUserById(userId, {
-      password: newPassword,
+      password: newPassword.length < 6 ? "eaglemath:short:v1:" + newPassword : newPassword,
     });
     if (pwError) return jsonResponse({ error: pwError.message }, 400);
 
-    await adminClient.from("profiles").update({ must_change_password: true }).eq("id", userId);
+    await adminClient.from("profiles").update({ must_change_password: false }).eq("id", userId);
 
     return jsonResponse({ ok: true }, 200);
   } catch (err) {
