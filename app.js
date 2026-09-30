@@ -1,4 +1,5 @@
 import { authPassword } from './auth-password.js?v=1';
+import { verifyRecordWriter } from './record-auth.js?v=1';
 import { createAcademy } from "./academy.js?v=30";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -2905,6 +2906,15 @@ async function addStudyPlanIfMissing(studentId, material) {
 }
 
 async function saveRecord(mode, data) {
+  // Check before material/plan writes as well as the record itself. Keep the
+  // modal intact on expired, revoked, or cross-tab-switched sessions.
+  try {
+    const authProblem = await verifyRecordWriter(supabase, session?.id);
+    if (authProblem) { showMessage(authProblem); return false; }
+  } catch {
+    showMessage('서버 연결을 확인하지 못했습니다. 작성 내용은 유지됩니다. 잠시 후 다시 저장해주세요.');
+    return false;
+  }
   const material = data.materialCustom?.trim() || data.material?.trim() || "";
   const unit = data.unit?.trim() || "";
   delete data.materialCustom;
