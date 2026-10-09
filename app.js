@@ -1,6 +1,6 @@
 import { authPassword } from './auth-password.js?v=1';
 import { verifyRecordWriter } from './record-auth.js?v=1';
-import { createAcademy } from "./academy.js?v=38";
+import { createAcademy } from "./academy.js?v=39";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";

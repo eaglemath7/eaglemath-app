@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const source=fs.readFileSync('academy.js','utf8');
 const functions=source.slice(source.indexOf('export function journalTime'),source.indexOf('// Daily workflow UI.')).replaceAll('export function','function');
-const ctx={};vm.createContext(ctx);vm.runInContext(functions,ctx);
+const ctx={currentHomeworkPanel:()=>'',parentMessageCollection:()=>'',};vm.createContext(ctx);vm.runInContext(functions,ctx);
 assert.match(ctx.journalTime('2026-09-29T16:30:00Z'),/2026.*09.*30.*01:30/);
 assert.equal(ctx.journalTime('invalid'),'');
 assert.equal(ctx.lessonSessionStatus(true,null,true),'알림장 게시 완료');

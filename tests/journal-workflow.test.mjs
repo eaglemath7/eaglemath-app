@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {homeworkOverview,parentConversation,previousHomework} from '../journal-workflow.js';
+const lesson={id:'l',kind:'lesson',status:'published',student_id:'s',day:'2026-10-08',body:{assignment:'12~15쪽',assignment_due:'2026-10-12T16:00',period:'1600-1700'}};
+const approved={id:'r',kind:'reflection',status:'approved',student_id:'s',day:'2026-10-09',body:{assignment:'오답',period:'1600-1700'}};
+assert.equal(homeworkOverview([lesson,approved],[],'s','2026-10-09',{student:true})[0].text,'오답');
+assert.equal(homeworkOverview([lesson,approved],[],'s','2026-10-09')[0].due,'2026-10-12T16:00');
+assert.equal(homeworkOverview([lesson,{...approved,status:'submitted'}],[],'s','2026-10-09',{student:true})[0].text,'12~15쪽');
+assert.deepEqual(homeworkOverview([lesson],[],'other','2026-10-09'),[]);
+const messages=[lesson,{id:'p',kind:'parent_message',audience:'parent',student_id:'s',created_at:'2026-10-09',body:{lesson_id:'l',text:'부모 전용'}},{id:'q',kind:'question',audience:'parent',student_id:'s',created_at:'2026-10-08',body:{text:'질문'}},{id:'a',kind:'reply',audience:'parent',student_id:'s',created_at:'2026-10-10',body:{thread:'q',text:'답변'}},{id:'private',kind:'reply',audience:'student',student_id:'s',body:{thread:'l',text:'학생만'}},{id:'other',kind:'reply',audience:'parent',student_id:'other',body:{thread:'q',text:'다른자녀'}}];
+assert.deepEqual(parentConversation(messages,'s').map(x=>x.id),['a','p','q']);
+assert.equal(previousHomework([lesson],[],'s','2026-10-09').text,'12~15쪽');
+assert.equal(previousHomework([lesson],[],'s','2026-10-08').text,'이전 과제 없음');
+assert.equal(previousHomework([lesson],[{studentIds:['s'],lessonDate:'2026-10-07',assignment:'옛 숙제'}],'s','2026-10-09').text,'12~15쪽');
+console.log('PASS: approved student homework, deadlines, unpublished/student-only privacy, child filtering, latest previous assignment');

@@ -15,3 +15,8 @@
 button[data-ac="period"] { font-size:13px; padding:8px 11px; font-variant-numeric:tabular-nums; white-space:nowrap; }
 
 .ac-class-teacher{margin:14px 0 8px}.ac-class-teacher label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}.ac-class-teacher select{width:180px;padding:7px 10px;font-size:13px}
+.ac-lesson-checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.ac-lesson-checks select,.ac-lesson-checks input{font-size:13px;padding:7px}.ac-current-homework h2{font-size:20px}.ac-current-homework article+article{border-top:1px solid #dce3eb;padding-top:8px}.ac-homework-deadline{font-size:13px;color:#15549a;font-weight:600}.ac-current-homework small{font-size:12px;color:#637180}
+
+.ac-priority{display:inline-block;padding:1px 6px;border-radius:5px;background:#edf1f5;font-size:11px;font-weight:700}.ac-priority.urgent{color:#ae1726;background:#ffe5e8}.ac-priority.high{color:#8b5500;background:#fff0cd}
+
+.ac-due-choice span{display:flex;align-items:center;gap:6px}.ac-due-choice input[type="checkbox"]{width:16px;height:16px}.ac-due-choice small{font-weight:400;color:#637180}.ac-due-choice input[hidden]{display:none}

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {currentAssignments,journalCalendarDays} from '../academy.js';
 const source=fs.readFileSync('academy.js','utf8');
-const ctx={currentAssignments,journalCalendarDays,h:x=>x||'',badge:x=>x,journalDay:'2026-10-08',journalMonth:'2026-10',parent:()=>false,parentLearningSummary:()=> 'PARENT_VIEW',current:()=> 'student',rows:()=>[],date:()=> '2026-10-08',studentSessionsPanel:()=> 'NO_SESSIONS',legacyRecords:[],empty:x=>x,btn:(label,action)=>`<button data-ac="${action}">${label}</button>`};
+const ctx={currentHomeworkPanel:()=>'',parentMessageCollection:()=>'',currentAssignments,journalCalendarDays,h:x=>x||'',badge:x=>x,journalDay:'2026-10-08',journalMonth:'2026-10',parent:()=>false,parentLearningSummary:()=> 'PARENT_VIEW',current:()=> 'student',rows:()=>[],date:()=> '2026-10-08',studentSessionsPanel:()=> 'NO_SESSIONS',legacyRecords:[],empty:x=>x,btn:(label,action)=>`<button data-ac="${action}">${label}</button>`};
 vm.createContext(ctx);
 vm.runInContext(source.slice(source.indexOf('  function learningSummary(){'),source.indexOf('  const reviewFor=',source.indexOf('  function learningSummary(){'))),ctx);
 const html=ctx.learningSummary();
