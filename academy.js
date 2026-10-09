@@ -1,3 +1,4 @@
+import { openWeeklyJournal } from './weekly-journal.js?v=1';
 import { authPassword } from './auth-password.js?v=1';
 // The newest published lesson day remains current until another lesson is published.
 export function currentAssignments(items, legacy, studentId, today) {
@@ -218,7 +219,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   function classView(){
     const schedules=lessonStudents();const periods=[...new Set(schedules.map(s=>s.period))];if(!periods.includes(period))period=periods[0]||'';
     const ids=[...new Set(schedules.filter(s=>s.period===period).map(s=>s.studentId))];
-    return `${toolbar('오늘 수업','직전 과제를 확인하고, 같은 진도 학생은 함께 기록하세요.',`<input type="date" data-ac-date value="${day}" />`)}${statusNotice()}${reflectionQueue()}<div class="tabs">${periods.map(p=>btn(h(p),'period',p,p===period?'primary':'')).join('')}</div><div class="ac-selection"><span>${selected.size}명 선택</span>${btn('현재 시간 전체 선택','select-class')}${btn('선택 해제','clear')}${btn('공통 수업·알림장 작성','bulk-lesson')}${btn('과제 출제','assign')}${btn('단원평가 기록','assessment-batch')}</div><div class="ac-student-list">${ids.map(id=>{
+    return `${toolbar('오늘 수업','직전 과제를 확인하고, 같은 진도 학생은 함께 기록하세요.',`${btn('주간 일지 출력','weekly-print')}<input type="date" data-ac-date value="${day}" />`)}${statusNotice()}${reflectionQueue()}<div class="tabs">${periods.map(p=>btn(h(p),'period',p,p===period?'primary':'')).join('')}</div><div class="ac-selection"><span>${selected.size}명 선택</span>${btn('현재 시간 전체 선택','select-class')}${btn('선택 해제','clear')}${btn('공통 수업·알림장 작성','bulk-lesson')}${btn('과제 출제','assign')}${btn('단원평가 기록','assessment-batch')}</div><div class="ac-student-list">${ids.map(id=>{
       const s=c().state.students.find(x=>x.id===id);if(!s)return '';
       const prior=c().state.records.filter(r=>!r.hidden&&r.studentIds.includes(id)&&r.lessonDate<day).sort((a,b)=>b.lessonDate.localeCompare(a.lessonDate))[0];
       const hw=rows('homework').filter(i=>i.student_id===id&&i.day<day).sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
@@ -433,6 +434,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
         if(!period)period=reflectionSessions[0]?.period||rows('reflection').find(r=>r.student_id===uid()&&r.day===reflectionDay)?.body.period||'오늘 수업';
         panel=reflectionForm();
       }
+      if(a==='weekly-print'){openWeeklyJournal({db,state:c().state,session:c().session,defaultDay:day});return;}
       if(a==='homework')panel=homeworkPanel(i);
       if(a==='question')panel=form(parent()?'학원·선생님께 문의':'사진으로 질문하기','question',studentSelect()+input('제목','title')+area('어디가 궁금한가요?','text')+fileInput());
       if(a==='thread'||a==='lesson')panel=threadPanel(i);

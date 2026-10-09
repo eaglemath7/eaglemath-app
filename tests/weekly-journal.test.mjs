@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {weekDates,journalPages,journalHTML} from '../weekly-journal.js';
+assert.deepEqual(weekDates('2026-10-11'),['2026-10-05','2026-10-06','2026-10-07','2026-10-08','2026-10-09','2026-10-10','2026-10-11']);
+assert.equal(weekDates('2027-01-01')[0],'2026-12-28');assert.throws(()=>weekDates('2026-02-30'));
+const students=Array.from({length:31},(_,i)=>({id:String(i),name:'학생'+i,schoolYear:'초3',active:true}));
+const day='2026-10-05';const session=i=>({student_id:String(i),period:'오후반',teacher_ids:['t'],lesson_type:'정규'});
+const args={days:[day,'2026-10-06'],teacherId:'t',students,periods:[{name:'오후반',startTime:'14:00',endTime:'16:00'}]};
+let pages=journalPages({...args,sessionsByDay:{[day]:[...Array.from({length:16},(_,i)=>session(i)),session(0),{...session(20),teacher_ids:['other']}]}});
+assert.equal(pages.length,2);assert.equal(pages[0].rows.length,15);assert.equal(pages[1].rows.length,1);assert.equal(pages[0].rows[0].label,'14:00~16:00');
+assert.throws(()=>journalPages({...args,sessionsByDay:{[day]:students.map((_,i)=>session(i))}}),/30/);
+assert.throws(()=>journalPages({...args,sessionsByDay:{[day]:[session(99)]}}),/학생 정보/);
+pages=journalPages({...args,sessionsByDay:{[day]:[session(1),{...session(1),period:'보충 10:00–13:00',lesson_type:'보충'}]}});
+assert.equal(pages[0].rows[0].type,'보충');assert.equal(pages[0].rows.length,2);
+const html=journalHTML(pages,'<script>','https://example.test/logo.png');assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));assert.equal((html.match(/class="writing"/g)||[]).length,45);assert.ok(!html.includes('1 / 2'));
+console.log('PASS: week bounds, teacher filtering, makeup order, deduplication, 15-row pagination, overflow guard, escaping');
