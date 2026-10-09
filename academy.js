@@ -1,4 +1,4 @@
-import { openWeeklyJournal } from './weekly-journal.js?v=1';
+import { openWeeklyJournal } from './weekly-journal.js?v=2';
 import { authPassword } from './auth-password.js?v=1';
 // The newest published lesson day remains current until another lesson is published.
 export function currentAssignments(items, legacy, studentId, today) {
