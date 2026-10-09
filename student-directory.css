@@ -20,3 +20,6 @@ button[data-ac="period"] { font-size:13px; padding:8px 11px; font-variant-numeri
 .ac-priority{display:inline-block;padding:1px 6px;border-radius:5px;background:#edf1f5;font-size:11px;font-weight:700}.ac-priority.urgent{color:#ae1726;background:#ffe5e8}.ac-priority.high{color:#8b5500;background:#fff0cd}
 
 .ac-due-choice span{display:flex;align-items:center;gap:6px}.ac-due-choice input[type="checkbox"]{width:16px;height:16px}.ac-due-choice small{font-weight:400;color:#637180}.ac-due-choice input[hidden]{display:none}
+
+.login-identity{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0}.login-identity strong{font-size:17px;color:#183e69;overflow-wrap:anywhere}.login-identity span{font-size:12px;color:#546579;white-space:nowrap}.login-identity small{flex-basis:100%;font-size:12px;color:#42546b}.ac-student-topbar .brand-title{display:none}.ac-student-topbar .brand{flex-shrink:0}
+@media(max-width:700px){.ac-student-topbar{flex-wrap:wrap}.ac-student-topbar .brand{width:100%}.login-identity strong{font-size:16px}}

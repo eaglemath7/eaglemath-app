@@ -1,6 +1,6 @@
 import { authPassword } from './auth-password.js?v=1';
 import { verifyRecordWriter } from './record-auth.js?v=1';
-import { createAcademy } from "./academy.js?v=39";
+import { createAcademy } from "./academy.js?v=40";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
@@ -556,19 +556,24 @@ function renderLogin() {
 }
 
 function renderTopbar() {
+  const familyPortal = ['student','parent'].includes(session.role);
+  const roleLabel = {student:'학생',parent:'학부모',admin:'관리자',deputy:'부원장',teacher:'강사',assistant:'조교'}[session.role] || '';
+  const childName = session.role === 'parent' ? academy.currentChildName() : '';
+  const identity = `<div class="login-identity" aria-label="로그인 정보"><strong>${escapeHtml(currentUserName())}</strong><span>${roleLabel} 로그인</span>${childName ? `<small>보고 있는 자녀 · ${escapeHtml(childName)}</small>` : ''}</div>`;
   const nav = (target, label) => `<button class="${route === target ? 'primary' : 'ghost'}" data-route="${target}" ${route === target ? 'aria-current="page"' : ''}>${label}</button>`;
   return `
-    <header class="topbar ${session.role === 'student' ? 'ac-student-topbar' : ''}">
+    <header class="topbar ${familyPortal ? 'ac-student-topbar' : ''}">
       <div class="brand">
         <img src="./logo.png" alt="독수리수학 로고" />
         <div class="brand-title">
           <strong>수학이 너희를 자유케하리라</strong>
           <span>${routeLabel()}</span>
         </div>
+        ${familyPortal ? identity : ""}
       </div>
       <div class="row">
         <span class="badge">${escapeHtml(syncStatus)}</span>
-        <span class="user-chip">${escapeHtml(currentUserName())}</span>
+        ${familyPortal ? "" : identity}
         ${nav('home','홈')}
         ${canTeacher() ? nav('academy_class','오늘 수업') : ''}
         ${canTeacher() && route === 'teacher' ? nav('teacher','강사 수업기록') : ''}
