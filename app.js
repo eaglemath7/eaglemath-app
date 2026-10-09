@@ -1141,7 +1141,7 @@ function renderStudentDirectory() {
           ${renderAdminStudentFilters()}
           <div class="muted small">${adminFilteredStudents().length}명 표시 중 (전체 ${toList(state.students).length}명)</div>
           <div class="table-wrap">
-            <table>
+            <table class="student-directory-table">
               <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
               <tbody>${adminFilteredStudents().map(s => `
                 <tr>
@@ -1149,14 +1149,14 @@ function renderStudentDirectory() {
                   <td>${escapeHtml(s.schoolYear || "-")}</td>
                   <td>${escapeHtml(s.loginId)}</td>
                   <td>${escapeHtml(s.parentPhone || "-")}</td>
-                  <td class="toolbar">
+                  <td class="student-directory-controls"><div class="student-directory-actions">
                     <button data-action="editStudent" data-id="${s.id}">수정</button>
                     <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
-                    <select data-action="changeStudentStatus" data-id="${s.id}">
+                    <select aria-label="${escapeHtml(s.name)} 재원 상태" data-action="changeStudentStatus" data-id="${s.id}">
                       ${STUDENT_STATUSES.map(v => `<option value="${v}" ${v === (s.status || "재원") ? "selected" : ""}>${v}</option>`).join("")}
                     </select>
                     <button class="danger" data-action="softDeleteStudent" data-id="${s.id}">삭제</button>
-                  </td>
+                  </div></td>
                 </tr>
               `).join("")}</tbody>
             </table>
