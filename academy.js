@@ -58,6 +58,7 @@ export function journalCalendarDays(month) {
 // Daily workflow UI. All mutations use permission-checked transactional database RPCs.
 export function createAcademy({ db, context, refresh, legacyHome, legacyStudent, notices, holiday=()=>'', escape: h }) {
   let items = [], children = [], points = [], ready = false, problem = '', loadedFor = '', panel = '', busy = false;
+  let classTeacher = '';
   let selected = new Set(), day = date(), period = '', student = '', month = date().slice(0,7), rankMonths=1, rankStart='',rankEnd='', rankings=[];
   let journalDay=date(),journalMonth=date().slice(0,7),reflectionDay=date(),reflectionSessions=[];
   const parentCommentDrafts=new Map();
@@ -212,15 +213,24 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   function lessonStudents(){
     return sessionDay===day?lessonSessions.filter(s=>admin()||s.teacherIds.includes(uid())||s.lessonType==='보충'):[];
   }
+  function classLessonStudents(){
+    return lessonStudents().filter(s=>!admin()||!classTeacher||s.teacherIds.includes(classTeacher));
+  }
+  function classTeacherFilter(){
+    if(!admin())return '';
+    const teachers=c().state.teachers.filter(t=>t.active!==false);
+    if(classTeacher&&!teachers.some(t=>t.id===classTeacher)){classTeacher='';selected.clear();}
+    return `<div class="toolbar ac-class-teacher"><label>강사 <select data-ac-class-teacher aria-label="오늘 수업 강사 선택"><option value="">전체 강사</option>${teachers.map(t=>`<option value="${h(t.id)}" ${classTeacher===t.id?'selected':''}>${h(t.name)}</option>`).join('')}</select></label></div>`;
+  }
   function studentSessionList(){return sessionDay===date()?lessonSessions.filter(s=>s.studentId===current()):[];}
   function studentSessionsPanel(){
     const list=studentSessionList();
     return `<section class="panel"><h3>오늘의 수업</h3>${list.map(s=>{const own=rows('reflection').find(r=>r.student_id===current()&&r.day===date()&&r.body.period===s.period);return `<div class="ac-line"><span><strong>${h(s.period.replace(/보충/g,'수업'))}</strong>${badge(lessonSessionStatus(parent(),own,rows('lesson').some(i=>i.student_id===current()&&i.day===date()&&i.status==='published'&&i.body.period===s.period)))}</span>${!parent()?btn(own?'세 줄 학습 정리 확인':'세 줄 학습 정리 쓰기','reflection-session',s.period):''}</div>`;}).join('')||empty('오늘 배정된 수업이 없습니다.')}</section>`;
   }
   function classView(){
-    const schedules=lessonStudents();const periods=[...new Set(schedules.map(s=>s.period))];if(!periods.includes(period))period=periods[0]||'';
+    const schedules=classLessonStudents();const periods=[...new Set(schedules.map(s=>s.period))];if(!periods.includes(period))period=periods[0]||'';
     const ids=[...new Set(schedules.filter(s=>s.period===period).map(s=>s.studentId))];
-    return `${toolbar('오늘 수업','직전 과제를 확인하고, 같은 진도 학생은 함께 기록하세요.',`${btn('주간 일지 출력','weekly-print')}<input type="date" data-ac-date value="${day}" />`)}${statusNotice()}${reflectionQueue()}<div class="tabs">${periods.map(p=>btn(h(lessonTime(p)),'period',p,p===period?'primary':'')).join('')}</div><div class="ac-selection"><span>${selected.size}명 선택</span>${btn('현재 시간 전체 선택','select-class')}${btn('선택 해제','clear')}${btn('공통 수업·알림장 작성','bulk-lesson')}${btn('과제 출제','assign')}${btn('단원평가 기록','assessment-batch')}</div><div class="ac-student-list">${ids.map(id=>{
+    return `${toolbar('오늘 수업','직전 과제를 확인하고, 같은 진도 학생은 함께 기록하세요.',`${btn('주간 일지 출력','weekly-print')}<input type="date" data-ac-date value="${day}" />`)}${statusNotice()}${reflectionQueue()}${classTeacherFilter()}<div class="tabs">${periods.map(p=>btn(h(lessonTime(p)),'period',p,p===period?'primary':'')).join('')||empty('선택한 강사의 오늘 수업이 없습니다.')}</div><div class="ac-selection"><span>${selected.size}명 선택</span>${btn('현재 시간 전체 선택','select-class')}${btn('선택 해제','clear')}${btn('공통 수업·알림장 작성','bulk-lesson')}${btn('과제 출제','assign')}${btn('단원평가 기록','assessment-batch')}</div><div class="ac-student-list">${ids.map(id=>{
       const s=c().state.students.find(x=>x.id===id);if(!s)return '';
       const prior=c().state.records.filter(r=>!r.hidden&&r.studentIds.includes(id)&&r.lessonDate<day).sort((a,b)=>b.lessonDate.localeCompare(a.lessonDate))[0];
       const hw=rows('homework').filter(i=>i.student_id===id&&i.day<day).sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
@@ -377,7 +387,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       area('공부한 내용 · 페이지 · 문항 수','content',d.content)+area('오늘 알게 된 것','learned',d.learned)+area('오늘의 과제','assignment',d.assignment)+area('학생 소감','feeling',d.feeling)+area('선생님 관찰 키워드','keywords',d.keywords)+area('학부모님께','parent_message',d.parent_message)+area('학생에게','student_message',d.student_message)+area('직원 내부 메모','internal_note',d.internal_note)+btn('AI 문장 다듬기','polish-form')+`<div class="ac-ai-result"></div>`,i?.id||'', '<button type="submit" name="intent" value="draft">초안 저장</button><button type="submit" name="intent" value="publish" class="primary">게시하기</button><button type="submit" name="intent" value="ai-publish">AI 다듬기 후 바로 게시</button>');
   }
   function assessmentBatchForm(){
-    const visible=new Set(lessonStudents().filter(s=>s.period===period).map(s=>s.studentId));
+    const visible=new Set(classLessonStudents().filter(s=>s.period===period).map(s=>s.studentId));
     const ids=[...selected].filter(id=>visible.has(id));
     if(!ids.length)throw new Error('현재 수업에서 평가를 기록할 학생을 먼저 선택해주세요.');
     return form(`선택 학생 단원평가 · ${ids.length}명`, 'assessment-batch',`<div class="ac-assessment-fields">`+input('평가명','title')+`<input type="hidden" name="category" value="단원평가"/>`+input('단원 (선택)','unit')+input('시험일','day',day,'date')+input('만점·전체 문항 수','total',100,'number')+`</div>`+gradeFields({school_grade:([...new Set(ids.map(schoolGrade))].length===1?schoolGrade(ids[0]):'')})+`<p class="muted small">선택한 학생별 점수를 입력하세요. 빈칸은 저장하지 않습니다.</p><div class="ac-score-list">${ids.map(id=>`<label class="ac-score-row"><span>${h(name(id))}</span><input type="number" min="0" step="any" name="score:${h(id)}" data-score-student="${h(id)}" aria-label="${h(name(id))} 점수" placeholder="점수"/></label>`).join('')}</div><label><input name="first_attempt" type="checkbox" checked/>첫 응시 성적 (재시험은 보너스 제외)</label>`,'','<button class="primary" type="submit">입력한 점수 저장</button>');
@@ -413,7 +423,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(a==='child'){student=id;refresh();return;}
       if(a==='period'){period=id;selected.clear();refresh();return;}
       if(a==='clear'){selected.clear();refresh();return;}
-      if(a==='select-class'){lessonStudents().filter(x=>x.period===period).forEach(x=>selected.add(x.studentId));refresh();return;}
+      if(a==='select-class'){classLessonStudents().filter(x=>x.period===period).forEach(x=>selected.add(x.studentId));refresh();return;}
       if(a==='day'){day=id;selected.clear();await load();refresh();return;}
       if(a==='prev-month'||a==='next-month'){const [y,m]=month.split('-').map(Number);const d=new Date(y,m-1+(a==='next-month'?1:-1),1);month=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;refresh();return;}
       if(a==='comment-view'){commentFilter='all';commentSearch='';refresh();document.getElementById('comment-'+id)?.scrollIntoView({block:'center',behavior:'smooth'});return;}
@@ -715,6 +725,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     if(e.target.matches('[data-comment-filter]')){commentFilter=e.target.value;refresh();}
     if(e.target.matches('[data-comment-search]')){commentSearch=e.target.value;refresh();}
     if(e.target.matches('[data-ac-select]')){e.target.checked?selected.add(e.target.dataset.acSelect):selected.delete(e.target.dataset.acSelect);refresh();}
+    if(e.target.matches('[data-ac-class-teacher]')&&admin()){classTeacher=e.target.value;period='';selected.clear();batchIds.clear();refresh();}
     if(e.target.matches('[data-ac-date]')){day=e.target.value;selected.clear();load().then(refresh);}
     if(e.target.matches('[data-ac-student]')){student=e.target.value;refresh();}
     if(e.target.matches('[data-ac-rank]')){rankMonths=Number(e.target.value);rankStart='';rankEnd='';rank().then(refresh).catch(err=>alert(err.message));}
@@ -728,5 +739,5 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   // Refresh without interrupting forms or selecting students.
   const canAutoRefresh=()=>uid()&&document.visibilityState==='visible'&&!c().modalOpen&&!panel&&!busy&&!draggingTask&&!selected.size&&!reflectionSelection.size&&!document.activeElement?.closest('form')&&!document.querySelector('[data-ac-form="school-scores"]');
   setInterval(()=>{if(canAutoRefresh())load().then(()=>{if(canAutoRefresh())refresh();});},30000);
-  return {render,load,reset(){requiredReviews=[];requiredReviewsReady=false;parentCommentDrafts.clear();reflectionDay=date();reflectionSessions=[];clearTimeout(draftTimer);journalDay=date();journalMonth=journalDay.slice(0,7);clearTaskDrag();commentReviews=[];commentNotifications=[];commentsReady=false;addedGrades.clear();items=[];children=[];points=[];loadedFor='';panel='';selected.clear();reflectionSelection.clear();reflectionBatch=[];lessonSessions=[];sessionDay='';student='';period='';}};
+  return {render,load,reset(){classTeacher='';requiredReviews=[];requiredReviewsReady=false;parentCommentDrafts.clear();reflectionDay=date();reflectionSessions=[];clearTimeout(draftTimer);journalDay=date();journalMonth=journalDay.slice(0,7);clearTaskDrag();commentReviews=[];commentNotifications=[];commentsReady=false;addedGrades.clear();items=[];children=[];points=[];loadedFor='';panel='';selected.clear();reflectionSelection.clear();reflectionBatch=[];lessonSessions=[];sessionDay='';student='';period='';}};
 }

@@ -13,3 +13,5 @@
 @media(max-width:700px){.student-directory-table th,.student-directory-table td{padding:8px}.student-directory-table td:nth-child(1){min-width:80px}.student-directory-table td:nth-child(3){min-width:90px}}
 
 button[data-ac="period"] { font-size:13px; padding:8px 11px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+.ac-class-teacher{margin:14px 0 8px}.ac-class-teacher label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}.ac-class-teacher select{width:180px;padding:7px 10px;font-size:13px}
