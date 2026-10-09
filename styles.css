@@ -968,3 +968,70 @@ th {
 .ac-parent-journal textarea{width:100%;box-sizing:border-box}
 .ac-journal-date{font-size:17px;margin:0 0 12px}
 @media(max-width:760px){.ac-parent-layout{grid-template-columns:1fr}.ac-parent-calendar .ac-days button{min-height:44px}}
+
+/* Compact student record using the eagle logo's blue and red. */
+.ac-reflection-entry { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 20px; border:1px solid var(--line); border-left:3px solid var(--blue); background:white; }
+.ac-reflection-entry h2 { margin:0 0 5px; font-size:18px; color:var(--blue); }
+.ac-reflection-entry p { margin:0; font-size:14px; color:var(--muted); }
+.ac-reflection-entry>.primary { flex-shrink:0; padding:10px 16px; }
+.ac-reflection-dialog { max-width:620px; padding:22px; border-radius:12px; background:white; }
+.ac-reflection-dialog form>.between { margin-bottom:12px; }
+.ac-reflection-dialog h2 { margin:0; font-size:20px; color:var(--blue); line-height:1.45; word-break:keep-all; }
+.ac-reflection-dialog form>.between>button { flex-shrink:0; }
+.ac-reflection-dialog .stack { gap:14px; }
+.ac-reflection-intro p { margin:8px 0 0; font-size:13px; color:var(--muted); line-height:1.5; }
+.ac-writing-steps { display:grid; gap:16px; }
+.ac-writing-step { display:block; }
+.ac-writing-heading { display:flex; align-items:baseline; gap:9px; line-height:1.5; }
+.ac-step-number { color:var(--red); font-size:14px; font-weight:750; }
+.ac-writing-heading strong { color:var(--ink); font-size:15px; font-weight:650; }
+.ac-writing-hint { display:block; margin:4px 0 7px; color:var(--muted); font-size:12px; line-height:1.6; font-weight:400; }
+.ac-writing-step textarea { display:block; width:100%; min-height:74px; padding:10px 12px; border:1px solid var(--line); border-radius:7px; background:#fafbfd; font-size:15px; font-weight:400; line-height:1.6; resize:vertical; }
+.ac-writing-step textarea::placeholder { color:#929caa; opacity:1; }
+.ac-writing-step textarea:focus-visible { outline:2px solid var(--blue); outline-offset:1px; background:white; }
+.ac-reflection-extra { border-top:1px solid var(--line); padding-top:10px; color:var(--muted); }
+.ac-reflection-extra summary { cursor:pointer; font-size:12px; }
+.ac-reflection-extra summary span { margin-left:5px; color:#87909c; }
+.ac-reflection-extra .grid { margin-top:12px; }
+.ac-reflection-dialog .ac-form-status:empty { display:none; }
+.ac-reflection-dialog .form-actions { position:sticky; bottom:-22px; display:flex; justify-content:flex-end; gap:8px; padding:14px 0 4px; margin-top:12px; background:white; border-top:1px solid var(--line); }
+.ac-reflection-dialog .form-actions button { padding:11px 16px; font-size:14px; min-height:42px; }
+.ac-reflection-entry>.primary, .ac-reflection-dialog .form-actions>.primary { background:var(--red); border-color:var(--red); color:white; }
+.ac-reflection-entry>.primary:hover, .ac-reflection-dialog .form-actions>.primary:hover { background:#ba1420; border-color:#ba1420; }
+.ac-reflection-feedback { border-left:2px solid var(--blue); padding:8px 12px; background:#f3f7fc; font-size:13px; }
+.ac-reflection-feedback p { margin:5px 0 0; white-space:pre-wrap; }
+@media(max-width:600px){
+  .ac-reflection-entry { padding:15px; gap:10px; }
+  .ac-reflection-entry h2 { font-size:17px; }
+  .ac-reflection-entry p { font-size:12px; }
+  .ac-reflection-dialog { padding:16px; }
+  .ac-reflection-dialog h2 { font-size:18px; }
+  .ac-writing-step textarea { font-size:16px; min-height:82px; }
+  .ac-writing-step:first-child textarea { min-height:104px; }
+  .ac-reflection-dialog .form-actions { bottom:-16px; }
+  .ac-reflection-dialog .form-actions>.primary { flex:1; }
+}
+
+/* Student calendar and persistent academy identity. */
+.topbar.ac-student-topbar { position:sticky;top:0;z-index:20;background:#fff; }
+.ac-student-calendar { padding:14px; }
+.ac-student-calendar h3 { margin:0; }
+.ac-student-calendar .between { margin-bottom:6px; }
+.ac-student-calendar .between button { min-height:32px;padding:4px 10px; }
+.ac-student-calendar .ac-week span { padding:5px 2px;font-size:12px; }
+.ac-student-calendar .ac-days button { min-height:36px;height:36px;padding:4px 2px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:3px; }
+.ac-student-calendar .ac-record-dot { font-size:6px;color:#15549a; }
+.ac-student-calendar .selected .ac-record-dot { color:#fff; }
+.ac-student-calendar > p { margin:8px 0 0;font-size:11px; }
+.ac-student-calendar .ac-days .selected { background:#15549a;color:#fff;border-color:#15549a; }
+.ac-current-homework { border-left:3px solid #15549a; }
+@media(max-width:760px) {
+  .ac-student-topbar { align-items:center;gap:8px;padding:8px 12px; }
+  .ac-student-topbar .brand-title { display:none; }
+}
+
+.ac-reflection-dialog .ac-dismissal-hint { display:block;margin-top:3px;font-size:12px;font-weight:400;line-height:1.4; }
+
+.ac-reflection-dialog form>.between { display:flex;flex-wrap:nowrap;align-items:center;gap:8px; }
+.ac-reflection-dialog form>.between h2 { font-size:clamp(14px,4.2vw,20px);white-space:nowrap; }
+.ac-reflection-dialog form>.between>button { padding:6px 9px;font-size:12px; }

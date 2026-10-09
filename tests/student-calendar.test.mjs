@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {currentAssignments,journalCalendarDays} from '../academy.js';
+const lesson=(day,assignment,status='published',student_id='s')=>({kind:'lesson',student_id,day,status,body:{assignment}});
+const records=[lesson('2026-10-06','기존 숙제'),lesson('2026-10-08','작성 중','draft'),lesson('2026-10-09','미래 숙제'),lesson('2026-10-08','다른 학생','published','other')];
+assert.equal(currentAssignments(records,[],'s','2026-10-08')[0].assignment,'기존 숙제');
+records.push(lesson('2026-10-08','새 숙제'),lesson('2026-10-08','추가 수업 숙제'));
+assert.deepEqual(currentAssignments(records,[],'s','2026-10-08').map(i=>i.assignment),['새 숙제','추가 수업 숙제']);
+records.push(lesson('2026-10-07','늦게 발행한 이전 숙제'));
+assert.equal(currentAssignments(records,[],'s','2026-10-08')[0].day,'2026-10-08');
+assert.equal(currentAssignments([lesson('2026-10-08','')],[],'s','2026-10-08')[0].assignment,'없음');
+assert.equal(journalCalendarDays('2026-10').length%7,0);
+console.log('PASS: published homework only, latest class date, multiple sessions, future and student isolation');

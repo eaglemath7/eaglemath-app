@@ -193,4 +193,18 @@ await as(A);assert.equal((await review(studentQ.id)).teacher_at,null);assert.equ
 await as(P);assert.equal((await db.query('select * from academy_items where id=$1',[studentQ.id])).rows.length,0);
 console.log('PASS: student question/reply double-check, edited question reopens both roles, parent cannot read student conversation');
 
+
+
+// Backfill permissions must be enforced by the database, not just the calendar UI.
+await db.exec('reset role');
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/202610080001_past_reflections.sql',import.meta.url),'utf8'));
+await as(S);
+let past=await save({kind:'reflection',student_id:S,day:'2020-01-01',status:'submitted',body:{period:'과거 수업',learned:'복습',assignment:'오답',feeling:'뿌듯해요'}});
+assert.equal(past.day.toISOString().slice(0,10),'2020-01-01');
+await fails(()=>save({...past,day:'2020-01-02'}),/날짜와 수업/);
+await fails(()=>save({kind:'reflection',student_id:S,day:'2099-01-01',status:'draft',body:{period:'미래'}}),/오늘 또는 지난/);
+await as(S2);await fails(()=>save({...past,status:'draft'}),/접근 권한/);
+await as(A);past=await save({...past,status:'approved'});
+await as(S);await fails(()=>save({...past,status:'submitted'}),/오늘 또는 지난/);
+
 await db.close();

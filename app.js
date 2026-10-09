@@ -1,6 +1,6 @@
 import { authPassword } from './auth-password.js?v=1';
 import { verifyRecordWriter } from './record-auth.js?v=1';
-import { createAcademy } from "./academy.js?v=30";
+import { createAcademy } from "./academy.js?v=33";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
@@ -558,7 +558,7 @@ function renderLogin() {
 function renderTopbar() {
   const nav = (target, label) => `<button class="${route === target ? 'primary' : 'ghost'}" data-route="${target}" ${route === target ? 'aria-current="page"' : ''}>${label}</button>`;
   return `
-    <header class="topbar">
+    <header class="topbar ${session.role === 'student' ? 'ac-student-topbar' : ''}">
       <div class="brand">
         <img src="./logo.png" alt="독수리수학 로고" />
         <div class="brand-title">
@@ -575,6 +575,7 @@ function renderTopbar() {
         ${nav('academy_inbox','과제·질문')}${nav('academy_growth','성장기록')}
         ${canTeacher() ? nav('academy_comments','더블체크') : ''}
         ${canAdmin() ? nav('students','학생정보') + nav('admin','관리') : ''}
+        ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
         ${session.type === 'student' ? nav('student','알림장') : ''}
         <button class="${wideView ? 'selected' : 'ghost'}" data-action="toggleWideView" aria-pressed="${wideView}">${wideView ? '✓ 넓게 보기 켜짐' : '넓게 보기'}</button>
         <button data-action="logout">나가기</button>
@@ -1265,6 +1266,7 @@ function renderStudent() {
   return `
     <div class="grid">
 
+      <section class="panel ac-reflection-entry"><div><h2 class="section-title">오늘의 수업 기록</h2><p>공부한 내용 · 숙제 · 오늘의 생각</p></div><button class="primary" data-route="academy_learning">작성하기</button></section>
       ${renderSiblingSwitcher()}
       ${renderCalendar({ studentId: viewedId, parentView: true })}
       <section class="panel stack">
