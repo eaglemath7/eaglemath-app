@@ -1099,3 +1099,5 @@ body.family-mobile .topnav > button, body.family-mobile .topnav > a.nav-link-but
 body.family-mobile .grid.two, body.family-mobile .grid.three { grid-template-columns:1fr; }
 body.family-mobile .ac-dialog, body.family-mobile .ac-reflection-dialog { max-width:420px; }
 .topbar.tb-wide .tb-head, .topbar.tb-wide .topnav { width:100%; }
+/* 휴대폰 폭 화면 안쪽 오른쪽 아래에 카카오톡 문의 버튼 */
+body.family-mobile .ac-kakao-contact { right:max(16px, calc(50vw - 220px + 16px)); }
