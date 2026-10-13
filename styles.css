@@ -1035,3 +1035,17 @@ th {
 .ac-reflection-dialog form>.between { display:flex;flex-wrap:nowrap;align-items:center;gap:8px; }
 .ac-reflection-dialog form>.between h2 { font-size:clamp(14px,4.2vw,20px);white-space:nowrap; }
 .ac-reflection-dialog form>.between>button { padding:6px 9px;font-size:12px; }
+
+/* 상단의 '자동채점' 이동 버튼 (별도 페이지 링크) */
+a.nav-link-button {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--blue);
+  font-weight: 700;
+  text-decoration: none;
+  background: transparent;
+}
+a.nav-link-button:hover { border-color: #b7beca; }
