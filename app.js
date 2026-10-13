@@ -1,6 +1,6 @@
 import { authPassword } from './auth-password.js?v=1';
 import { verifyRecordWriter } from './record-auth.js?v=1';
-import { createAcademy } from "./academy.js?v=42";
+import { createAcademy } from "./academy.js?v=43";
 import { enableMobileShell } from './mobile-shell.js?v=1';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -585,7 +585,7 @@ function renderTopbar() {
         ${canTeacher() && route === 'teacher' ? nav('teacher','강사 수업기록') : ''}
         ${nav('academy_inbox','과제·질문')}
         ${canTeacher() ? nav('academy_growth','성장기록') : ''}
-        ${canTeacher() ? nav('academy_comments','더블체크') : ''}
+        ${canTeacher() ? nav('academy_comments', `더블체크${academy.doubleCheckCount() ? ` · ${academy.doubleCheckCount()}` : ''}`) : ''}
         ${canAdmin() ? nav('students','학생정보') + nav('admin','관리') : ''}
         ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
         ${session.type === 'student' ? nav('student','알림장') : ''}
