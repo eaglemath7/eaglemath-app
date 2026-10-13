@@ -64,6 +64,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   let journalDay=date(),journalMonth=date().slice(0,7),reflectionDay=date(),reflectionSessions=[];
   const parentCommentDrafts=new Map();
   let taskArchives=[];
+  const taskFormOpen=new Set(); // '＋ 추가'를 눌러 연 할 일 입력칸
   let lessonSessions=[],sessionDay='';
   let draggingTask=null;
   let reflectionSelection=new Set(), reflectionBatch=[];
@@ -166,7 +167,10 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   }
   function taskBoard(shared=false){
     const list=rows('task').filter(i=>!archivedTask(i.id)).filter(i=>(shared?i.audience==='staff':i.assignee_id===uid()||i.owner_id===uid()) && (i.day<=date()||i.status==='doing')).sort((a,b)=>(a.body.urgent?-1:({high:0,normal:1,low:2}[a.body.priority]??1))-(b.body.urgent?-1:({high:0,normal:1,low:2}[b.body.priority]??1))||(a.due_at||'z').localeCompare(b.due_at||'z'));
-    return `<div class="between"><h3>${shared?'함께 할 일':admin()?'원장 할 일':'내가 할 일'}</h3>${btn('완료 기록','task-history',String(shared))}</div>${quickTask(shared)}<div class="ac-board" data-task-board="${shared?'shared':'personal'}">${['todo','doing','done'].map(st=>`<section data-task-status="${st}" aria-label="${labels[st]} 업무 칸"><h4>${labels[st]} <span>${list.filter(i=>i.status===st).length}</span></h4>${list.filter(i=>i.status===st).map(i=>`<article class="ac-task" draggable="true" data-task-id="${h(i.id)}" title="끌어서 다른 칸으로 옮기세요"><div class="ac-task-main"><strong>${h(i.title)}</strong><span class="ac-task-meta">${h(teacher(i.assignee_id))}${i.body.project?' · '+h(i.body.project):''} · <span class="ac-priority ${i.body.urgent?'urgent':i.body.priority||'normal'}">${i.body.urgent?'긴급':({high:'중요',normal:'보통',low:'낮음'}[i.body.priority]||'보통')}</span>${i.due_at?` · <span class="${i.status!=='done'&&i.due_at<new Date().toISOString()?'ac-overdue':''}">${h(i.due_at.slice(5,10).replace('-','/'))} 마감</span>`:''}</span></div><div class="ac-task-actions">${st!=='todo'?taskArrow(i,'task-back',st==='done'?'doing':'todo','←'):''}${st!=='done'?taskArrow(i,'task-next',st==='todo'?'doing':'done','→'):canArchive(i)?btn('확인·보관','task-archive',i.id):'<small>관리자 확인 대기</small>'}</div></article>`).join('')||empty('등록된 업무가 없습니다.')}</section>`).join('')}</div>`;
+    const key=String(shared),open=taskFormOpen.has(key)||!!taskDrafts[key]?.titles;
+    // 할 일 칸은 항상, 진행 중·완료 칸은 업무가 있을 때만 보여줍니다.
+    const columns=['todo','doing','done'].filter(st=>st==='todo'||list.some(i=>i.status===st));
+    return `<div class="between"><h3>${shared?'함께 할 일':admin()?'원장 할 일':'내가 할 일'}</h3><div class="toolbar ac-task-tools">${btn(open?'닫기':'＋ 추가','task-add-toggle',key,open?'':'primary')}${btn('완료 기록','task-history',key)}</div></div>${open?quickTask(shared):''}<div class="ac-board ac-board-${columns.length}" data-task-board="${shared?'shared':'personal'}">${columns.map(st=>`<section data-task-status="${st}" aria-label="${labels[st]} 업무 칸"><h4>${labels[st]} <span>${list.filter(i=>i.status===st).length}</span></h4>${list.filter(i=>i.status===st).map(i=>`<article class="ac-task" draggable="true" data-task-id="${h(i.id)}" title="끌어서 다른 칸으로 옮기세요"><div class="ac-task-main"><strong>${h(i.title)}</strong><span class="ac-task-meta">${h(teacher(i.assignee_id))}${i.body.project?' · '+h(i.body.project):''} · <span class="ac-priority ${i.body.urgent?'urgent':i.body.priority||'normal'}">${i.body.urgent?'긴급':({high:'중요',normal:'보통',low:'낮음'}[i.body.priority]||'보통')}</span>${i.due_at?` · <span class="${i.status!=='done'&&i.due_at<new Date().toISOString()?'ac-overdue':''}">${h(i.due_at.slice(5,10).replace('-','/'))} 마감</span>`:''}</span></div><div class="ac-task-actions">${st!=='todo'?taskArrow(i,'task-back',st==='done'?'doing':'todo','←'):''}${st!=='done'?taskArrow(i,'task-next',st==='todo'?'doing':'done','→'):canArchive(i)?btn('확인·보관','task-archive',i.id):'<small>관리자 확인 대기</small>'}</div></article>`).join('')||empty('등록된 업무가 없습니다.')}</section>`).join('')}</div>`;
   }
   function makeupOn(d){return mergeMakeupSlots(c().state.academicEvents,d);}
   function makeupCopy(event){const b=makeupDetails(event);return `<span class="ac-makeup-time">${h(b.start)}–${h(b.end)} ${h(event.title)}</span>`+makeupGroups(b.studentIds,c().state.students).map(g=>`<span class="ac-makeup-names"><b>${h(g.grade)}</b> ${g.names.map(h).join(' · ')}</span>`).join('');}
@@ -434,6 +438,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(a==='close'){panel='';batchIds.clear();clearTimeout(draftTimer);refresh();return;}
       if(a==='reload'){await load();refresh();return;}
       if(a==='task-history'){panel=taskHistory(id==='true');refresh();return;}
+      if(a==='task-add-toggle'){if(taskFormOpen.has(id)||taskDrafts[id]?.titles){taskFormOpen.delete(id);delete taskDrafts[id];}else taskFormOpen.add(id);refresh();if(taskFormOpen.has(id))setTimeout(()=>document.querySelector(`.ac-quick-task[data-shared="${id}"] textarea`)?.focus(),0);return;}
       if(a==='task-archive'||a==='task-restore'){busy=true;b.disabled=true;const r=await db.rpc('academy_archive_task',{p_id:id,p_expected:i.updated_at,p_restore:a==='task-restore'});if(r.error)throw r.error;await load();if(a==='task-restore')panel='';refresh();return;}
       if(a==='journal-day'){journalDay=id;journalMonth=id.slice(0,7);refresh();return;}
       if(a==='journal-today'){journalDay=date();journalMonth=journalDay.slice(0,7);refresh();return;}
