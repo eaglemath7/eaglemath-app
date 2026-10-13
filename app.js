@@ -1,6 +1,6 @@
 import { authPassword } from './auth-password.js?v=1';
 import { verifyRecordWriter } from './record-auth.js?v=1';
-import { createAcademy } from "./academy.js?v=43";
+import { createAcademy } from "./academy.js?v=45";
 import { enableMobileShell } from './mobile-shell.js?v=1';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
