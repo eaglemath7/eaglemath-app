@@ -93,6 +93,9 @@ let route = "home";
 // 노트북/큰 화면에서 좌우 여백 없이 꽉 채워 보고 싶을 때 켜는 넓게 보기.
 // 기기별로 다를 수 있어서 localStorage에만 저장(서버 동기화 안 함).
 let wideView = false;
+// 형제자매 바꾸기: 같은 학부모에 연결된 학생들(본인 포함)
+let siblings = [];
+let siblingPicker = false;
 try { wideView = localStorage.getItem("eagle-wide-view") === "1"; } catch { wideView = false; }
 let selectedPeriod = "1교시";
 let selectedStudents = new Set();
@@ -445,6 +448,31 @@ function formatTest(value = "", legacyScore = "") {
 // =========================================================
 // 인증 (Supabase Auth)
 // =========================================================
+async function loadSiblings() {
+  siblings = [];
+  if (session?.role !== "student") return;
+  try { const { data } = await supabase.rpc("academy_siblings"); siblings = Array.isArray(data) ? data : []; } catch { siblings = []; }
+}
+function siblingPicked() { try { return sessionStorage.getItem("eagle-sibling-picked") === "1"; } catch { return true; } }
+function markSiblingPicked() { try { sessionStorage.setItem("eagle-sibling-picked", "1"); } catch { /* ignore */ } }
+function renderSiblingPicker() {
+  return `<section class="panel sibling-picker"><h2 class="section-title">누구의 공부를 할까요?</h2>
+    <p class="muted small">형제자매 중 오늘 공부할 사람을 골라 주세요.</p>
+    <div class="sibling-list">${siblings.map(s => `<button type="button" class="${s.id === session.id ? "primary" : ""}" data-action="pickSibling" data-id="${escapeHtml(s.id)}"><strong>${escapeHtml(s.name)}</strong><span>${escapeHtml(s.school_year || "")}</span></button>`).join("")}</div></section>`;
+}
+async function switchSibling(id) {
+  if (id === session.id) { siblingPicker = false; markSiblingPicked(); render(); return; }
+  syncStatus = "불러오는 중"; render();
+  const { data, error } = await supabase.functions.invoke("academy-sibling-switch", { body: { studentId: id } });
+  if (error || !data?.session) { showMessage(data?.error || "형제자매로 바꾸지 못했어요. 잠시 후 다시 시도해 주세요."); siblingPicker = false; render(); return; }
+  const signed = await supabase.auth.setSession(data.session);
+  if (signed.error || !signed.data?.user) { showMessage("형제자매로 바꾸지 못했어요."); render(); return; }
+  academy.reset();
+  if (!(await establishSession(signed.data.user.id))) { await logout(); return; }
+  await loadAllData(); await loadSiblings();
+  siblingPicker = false; markSiblingPicked(); render();
+}
+
 async function establishSession(userId) {
   const { data: profile, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
   if (error || !profile || !profile.active) return false;
@@ -496,11 +524,15 @@ async function login(event) {
     return;
   }
   await loadAllData();
+  await loadSiblings();
+  siblingPicker = siblings.length > 1;
   render();
 }
 
 async function logout() {
   academy.reset();
+  siblings = []; siblingPicker = false;
+  try { sessionStorage.removeItem("eagle-sibling-picked"); } catch { /* ignore */ }
   await supabase.auth.signOut();
   session = null;
   route = "home";
@@ -578,7 +610,7 @@ function renderTopbar() {
           <img src="./logo.png" alt="독수리수학 로고" />
           <strong class="tb-slogan">수학이 너희를 자유케하리라</strong>
         </div>
-        <div class="tb-id">${identity}${sync}${familyPortal ? '' : `<span class="tb-mini-links"><button type="button" class="tb-mini" data-action="toggleWideView" title="${wideView ? '휴대폰 화면으로 보기' : '컴퓨터에서 넓게 보기'}">${wideView ? '모바일' : 'PC 버전'}</button><button type="button" class="tb-mini" data-action="logout">나가기</button></span>`}</div>
+        <div class="tb-id">${identity}${sync}${session.role === 'student' && siblings.length > 1 ? '<span class="tb-mini-links"><button type="button" class="tb-mini" data-action="openSiblingPicker">형제 바꾸기</button></span>' : ''}${familyPortal ? '' : `<span class="tb-mini-links"><button type="button" class="tb-mini" data-action="toggleWideView" title="${wideView ? '휴대폰 화면으로 보기' : '컴퓨터에서 넓게 보기'}">${wideView ? '모바일' : 'PC 버전'}</button><button type="button" class="tb-mini" data-action="logout">나가기</button></span>`}</div>
       </div>
       <nav class="topnav" aria-label="메뉴">
         ${nav('home','홈')}
@@ -751,6 +783,7 @@ function renderCalendarDay() {
 }
 
 function renderRoute() {
+  if (siblingPicker && session.role === "student") return renderSiblingPicker();
   if (route === "home" || route.startsWith("academy_")) return academy.render(route);
   if (session.role === "parent") return academy.render("academy_learning");
   if (route === "students" && canAdmin()) return renderStudentDirectory();
@@ -2231,6 +2264,13 @@ function bindRouteEvents() {
 }
 
 function handleGlobalClick(event) {
+  const siblingButton = event.target.closest('button[data-action="pickSibling"], button[data-action="openSiblingPicker"]');
+  if (siblingButton) {
+    event.preventDefault();
+    if (siblingButton.dataset.action === "openSiblingPicker") { siblingPicker = true; render(); return; }
+    switchSibling(siblingButton.dataset.id);
+    return;
+  }
   const routeButton = event.target.closest("button[data-route]");
   if (routeButton) {
     event.preventDefault();
@@ -3709,6 +3749,8 @@ async function init() {
     const ok = await establishSession(data.session.user.id);
     if (ok) {
       await loadAllData();
+      await loadSiblings();
+      siblingPicker = siblings.length > 1 && !siblingPicked();
     } else {
       await supabase.auth.signOut();
       session = null;

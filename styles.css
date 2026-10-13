@@ -1178,3 +1178,9 @@ body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3
 .ac-student-calendar .ac-days button.ac-saturday:not(.selected), .ac-parent-calendar .ac-days button.ac-saturday:not(.selected) { color:#1d5fbf; }
 .ac-student-calendar .ac-week span:first-child, .ac-parent-calendar .ac-week span:first-child { color:#d52d3a; }
 .ac-student-calendar .ac-week span:last-child, .ac-parent-calendar .ac-week span:last-child { color:#1d5fbf; }
+
+/* 형제자매 고르기 */
+.sibling-picker { text-align:center; }
+.sibling-list { display:grid; gap:10px; margin-top:14px; }
+.sibling-list button { display:flex; align-items:center; justify-content:space-between; padding:16px 18px; font-size:17px; border-radius:12px; }
+.sibling-list button span { font-size:13px; opacity:.8; }

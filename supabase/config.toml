@@ -24,3 +24,7 @@ verify_jwt = false
 # Verifies the bearer token and student/staff role internally.
 [functions.grading-check]
 verify_jwt = false
+
+# Verifies the student token and sibling link internally.
+[functions.academy-sibling-switch]
+verify_jwt = false
