@@ -1,5 +1,6 @@
 // 독수리수학 자동채점 화면. 알림장과 같은 Supabase 로그인을 그대로 씁니다.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { enableMobileShell } from '../mobile-shell.js?v=1';
 import { VERDICT_LABEL, latestByStudentNo, rangeOptions, cropRect, fitScale, summarize, parseAnswerFile } from './grading-lib.js?v=1';
 
 const SUPABASE_URL = 'https://yftnpfphrkmrrofbvphj.supabase.co';
@@ -41,6 +42,7 @@ async function init() {
   const { data: me } = await db.from('profiles').select('id, name, role, active').eq('id', user.id).single();
   if (!me?.active || !(STAFF.includes(me.role) || me.role === 'student')) return renderSignedOut('학생 또는 선생님 계정으로 이용할 수 있어요.');
   state.me = me;
+  enableMobileShell(me.role === 'student');
   await loadBooks();
   if (isStaff()) {
     const { data: ch } = await db.rpc('academy_children');

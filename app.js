@@ -1,6 +1,7 @@
 import { authPassword } from './auth-password.js?v=1';
 import { verifyRecordWriter } from './record-auth.js?v=1';
 import { createAcademy } from "./academy.js?v=42";
+import { enableMobileShell } from './mobile-shell.js?v=1';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
@@ -511,14 +512,19 @@ async function logout() {
 function render() {
   ensureGlobalListeners();
   if (!session) {
+    enableMobileShell(portal === 'student' || portal === 'parent');
     app.innerHTML = renderLogin();
     document.getElementById("loginForm").addEventListener("submit", login);
     return;
   }
+  // 학생·학부모는 휴대폰 전용 화면
+  // 선생님도 기본은 휴대폰 화면, 'PC 버전'을 누르면 넓은 화면(wideView)으로 봅니다.
+  const familyOnly = ['student','parent'].includes(session.role);
+  enableMobileShell(familyOnly || !wideView);
   app.innerHTML = `
     <div class="app-shell">
       ${renderTopbar()}
-      <main class="main ${wideView ? "wide" : ""}">
+      <main class="main ${wideView && !familyOnly ? "wide" : ""}">
         ${renderRoute()}
       </main>
       ${modal ? renderModal() : ""}
@@ -565,7 +571,7 @@ function renderTopbar() {
   const syncIcon = syncStatus.startsWith('Supabase 연결됨') ? '🟢' : syncStatus === '불러오는 중' ? '⏳' : '⚠️';
   const sync = `<span class="sync-dot" title="${escapeHtml(syncStatus)}" aria-label="${escapeHtml(syncStatus)}">${syncIcon}</span>`;
   return `
-    <header class="topbar tb ${familyPortal ? 'ac-student-topbar' : ''}">
+    <header class="topbar tb ${familyPortal ? 'ac-student-topbar' : ''} ${wideView && !familyPortal ? 'tb-wide' : ''}">
       <div class="tb-head">
         <div class="tb-brand">
           <img src="./logo.png" alt="독수리수학 로고" />
@@ -584,7 +590,7 @@ function renderTopbar() {
         ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
         ${session.type === 'student' ? nav('student','알림장') : ''}
         ${session.role !== 'parent' ? `<a class="nav-link-button" href="./grading/${portal ? `?p=${portal}` : ''}">자동채점</a>` : ''}
-        <button class="${wideView ? 'selected' : 'ghost'}" data-action="toggleWideView" aria-pressed="${wideView}">${wideView ? '✓ 넓게' : '넓게 보기'}</button>
+        ${familyPortal ? '' : `<button class="ghost" data-action="toggleWideView" aria-pressed="false" title="${wideView ? '휴대폰 화면으로 보기' : '컴퓨터에서 넓게 보기 · 학생 검색 등'}">${wideView ? '모바일 보기' : 'PC 버전'}</button>`}
         <button class="ghost" data-action="logout">나가기</button>
       </nav>
     </header>
