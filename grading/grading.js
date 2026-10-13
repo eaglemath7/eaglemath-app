@@ -105,7 +105,7 @@ function summaryBadges(list) {
 function viewCheck() {
   const activeTitles = state.books.filter((b) => b.active).map((b) => b.title);
   return `<section class="panel gr-panel"><h2>페이지 사진으로 채점하기 <span class="badge warn">시범 운영 중</span></h2>
-    ${activeTitles.length ? `<p class="gr-pilot">지금은 <strong>${activeTitles.map(h).join(', ')}</strong> 교재만 채점할 수 있어요. 다른 교재 사진은 올리지 말아 주세요.</p>` : ''}
+    ${activeTitles.length ? `<p class="gr-pilot">지금은 <strong>${activeTitles.map(h).join(', ')}</strong> 교재만 채점할 수 있어요. 다른 교재는 사진을 올려도 채점되지 않아요.</p>` : ''}
     <div class="gr-form">
       ${bookSelect('bookId', state.bookId)}
       ${isStaff() ? `<label>학생<select data-bind="studentId"><option value="">학생 선택</option>${state.students.map((s) => `<option value="${s.id}" ${s.id === state.studentId ? 'selected' : ''}>${h(s.name)} ${h(s.school_year || '')}</option>`).join('')}</select></label>` : ''}
