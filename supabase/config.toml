@@ -22,5 +22,5 @@ verify_jwt = false
 verify_jwt = false
 
 # Verifies the bearer token and student/staff role internally.
-[functions.grading-check]
+[functions.rapid-action]
 verify_jwt = false

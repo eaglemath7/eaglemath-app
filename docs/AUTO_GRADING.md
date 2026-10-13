@@ -21,6 +21,8 @@
 2. **Edge Functions** → Deploy a new function → Via Editor → 이름 `grading-check`
    → `supabase/functions/grading-check/index.ts` 전체 붙여넣기 → Deploy
    → "Verify JWT"는 **끄기** (함수 안에서 직접 로그인을 확인함)
+   → 현재 운영 주소(slug)는 대시보드가 자동으로 정한 `rapid-action`이고(표시 이름 grading-check),
+     `grading/grading.js`의 `GRADING_FUNCTION`이 이 주소를 부릅니다. 함수를 새 주소로 다시 배포하면 이 값도 바꾸세요.
 3. **Edge Functions → Secrets**: `ANTHROPIC_API_KEY`는 알림장 AI용으로 이미 등록되어 있으면 그대로 사용
    - 선택: `GRADING_MODEL` (채점에 쓸 모델 이름. 없으면 `ANTHROPIC_MODEL` 값을 씀)
    - 선택: `GEMINI_API_KEY` + `GEMINI_MODEL` 둘 다 넣으면 두 번째 판독을 Gemini가 맡음 (서로 다른 AI가 교차 확인)

@@ -10,6 +10,8 @@ const db = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, portal ? { auth:
 const backHref = portal ? `./${portal}/` : './';
 const app = document.getElementById('app');
 const STAFF = ['admin', 'deputy', 'teacher', 'assistant'];
+// Supabase 대시보드에서 배포할 때 자동으로 정해진 함수 주소(slug). 화면 표시 이름은 grading-check.
+const GRADING_FUNCTION = 'rapid-action';
 
 const h = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -251,7 +253,7 @@ function toCanvas(img, sx, sy, sw, sh, maxSide) {
 const toBlob = (c) => new Promise((res) => c.toBlob(res, 'image/jpeg', 0.86));
 
 async function invoke(body) {
-  const { data, error } = await db.functions.invoke('grading-check', { body });
+  const { data, error } = await db.functions.invoke(GRADING_FUNCTION, { body });
   if (data?.error) throw new Error(data.error);
   if (error) {
     let msg = '';
