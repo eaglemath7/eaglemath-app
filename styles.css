@@ -1085,3 +1085,17 @@ a.nav-link-button:hover { border-color: #b7beca; }
 .tb-head, .topnav { width:min(1124px, 100%); margin-left:auto; margin-right:auto; }
 .topnav { margin-top:10px; }
 @media (max-width:760px) { .topnav { margin-top:8px; } }
+
+/* 학생·학부모: 휴대폰 전용 화면 (컴퓨터에서는 가운데 휴대폰 폭으로) */
+body.family-mobile { background:#e6eaf0; }
+body.family-mobile #app { max-width:440px; min-height:100vh; margin:0 auto; background:var(--soft); box-shadow:0 0 0 1px var(--line), 0 12px 40px rgba(15,23,42,.08); }
+body.family-mobile .main { width:100%; padding:14px 12px 40px; }
+body.family-mobile .topbar.tb { padding:8px 12px; }
+body.family-mobile .tb-slogan { display:none; }
+body.family-mobile .tb-brand img { width:84px; height:32px; }
+body.family-mobile .topnav { grid-template-columns:repeat(4, minmax(0, 1fr)); gap:5px; margin-top:8px; }
+body.family-mobile .ac-student-topbar .topnav { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+body.family-mobile .topnav > button, body.family-mobile .topnav > a.nav-link-button { height:34px; font-size:12.5px; padding:0 2px; }
+body.family-mobile .grid.two, body.family-mobile .grid.three { grid-template-columns:1fr; }
+body.family-mobile .ac-dialog, body.family-mobile .ac-reflection-dialog { max-width:420px; }
+.topbar.tb-wide .tb-head, .topbar.tb-wide .topnav { width:100%; }
