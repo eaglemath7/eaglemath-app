@@ -6,7 +6,7 @@ import { VERDICT_LABEL, latestByStudentNo, rangeOptions, cropRect, fitScale, sum
 const SUPABASE_URL = 'https://yftnpfphrkmrrofbvphj.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmdG5wZnBocmttcnJvZmJ2cGhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMTIwNzUsImV4cCI6MjA5NjY4ODA3NX0.sPx91LSD9z_OkfH0ebm-6T9DJ4quEhvCdvE7RO_U8s8';
 // 알림장의 어느 입구(teacher/student/기본)에서 왔는지에 따라 같은 로그인 저장소를 씁니다.
-const portal = ['teacher', 'student'].includes(new URLSearchParams(location.search).get('p')) ? new URLSearchParams(location.search).get('p') : '';
+const portal = ['teacher', 'student', 'parent'].includes(new URLSearchParams(location.search).get('p')) ? new URLSearchParams(location.search).get('p') : '';
 const db = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, portal ? { auth: { storageKey: `eagle-${portal}-session` } } : {});
 const backHref = portal ? `./${portal}/` : './';
 const app = document.getElementById('app');
@@ -33,6 +33,8 @@ const state = {
 
 const isStaff = () => STAFF.includes(state.me?.role);
 const isAdmin = () => ['admin', 'deputy'].includes(state.me?.role);
+const isParent = () => state.me?.role === 'parent';
+const picksStudent = () => isStaff() || isParent(); // 누구 것을 채점할지 고르는 사람
 const studentName = (id) => state.students.find((s) => s.id === id)?.name || '학생';
 
 async function init() {
@@ -40,13 +42,15 @@ async function init() {
   const user = data.session?.user;
   if (!user) return renderSignedOut();
   const { data: me } = await db.from('profiles').select('id, name, role, active').eq('id', user.id).single();
-  if (!me?.active || !(STAFF.includes(me.role) || me.role === 'student')) return renderSignedOut('학생 또는 선생님 계정으로 이용할 수 있어요.');
+  if (!me?.active || !(STAFF.includes(me.role) || me.role === 'student' || me.role === 'parent')) return renderSignedOut('학생·학부모·선생님 계정으로 이용할 수 있어요.');
   state.me = me;
-  enableMobileShell(me.role === 'student');
+  enableMobileShell(me.role === 'student' || me.role === 'parent');
   await loadBooks();
-  if (isStaff()) {
+  if (picksStudent()) {
+    // 선생님은 전체 학생, 학부모는 연결된 자녀만 돌아옵니다.
     const { data: ch } = await db.rpc('academy_children');
     state.students = (ch || []).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+    if (isParent() && state.students.length === 1) state.studentId = state.students[0].id;
   }
   render();
 }
@@ -71,10 +75,10 @@ function renderSignedOut(msg) {
 function render() {
   const tabs = isStaff()
     ? [['check', '채점하기'], ['matrix', '결과표'], ['pending', `확인 대기${state.pending.length ? ' ' + state.pending.length : ''}`], ['keys', '정답지']]
-    : [['check', '채점하기'], ['mine', '내 채점 기록']];
+    : [['check', '채점하기'], ['mine', isParent() ? '채점 기록' : '내 채점 기록']];
   app.innerHTML = `<div class="app-shell">
     <header class="topbar gr-top">
-      <div class="brand"><img src="./logo.png" alt="독수리수학 로고" /><div class="brand-title"><strong>자동채점</strong><span>${h(state.me.name)} · ${isStaff() ? '선생님' : '학생'}</span></div></div>
+      <div class="brand"><img src="./logo.png" alt="독수리수학 로고" /><div class="brand-title"><strong>자동채점</strong><span>${h(state.me.name)} · ${isStaff() ? '선생님' : isParent() ? '학부모' : '학생'}</span></div></div>
       <a href="${backHref}"><button class="ghost" type="button">알림장으로</button></a>
     </header>
     <main class="main">
@@ -110,7 +114,7 @@ function viewCheck() {
     ${activeTitles.length ? `<p class="gr-pilot">지금은 <strong>${activeTitles.map(h).join(', ')}</strong> 교재만 채점할 수 있어요. 다른 교재는 사진을 올려도 채점되지 않아요.</p>` : ''}
     <div class="gr-form">
       ${bookSelect('bookId', state.bookId)}
-      ${isStaff() ? `<label>학생<select data-bind="studentId"><option value="">학생 선택</option>${state.students.map((s) => `<option value="${s.id}" ${s.id === state.studentId ? 'selected' : ''}>${h(s.name)} ${h(s.school_year || '')}</option>`).join('')}</select></label>` : ''}
+      ${picksStudent() && !(isParent() && state.students.length === 1) ? `<label>${isParent() ? '자녀' : '학생'}<select data-bind="studentId"><option value="">${isParent() ? '자녀 선택' : '학생 선택'}</option>${state.students.map((s) => `<option value="${s.id}" ${s.id === state.studentId ? 'selected' : ''}>${h(s.name)} ${h(s.school_year || '')}</option>`).join('')}</select></label>` : ''}
       <div class="gr-photo-row">
         <label class="gr-photo-btn">카메라로 찍기<span class="small">한 장 찍을 때마다 아래에 쌓여요</span><input type="file" accept="image/*" capture="environment" data-photo ${state.busy ? 'disabled' : ''} /></label>
         <label class="gr-photo-btn">앨범에서 여러 장 고르기<span class="small">찍어 둔 사진을 한꺼번에</span><input type="file" accept="image/*" multiple data-photo ${state.busy ? 'disabled' : ''} /></label>
@@ -120,7 +124,7 @@ function viewCheck() {
         ${state.busy ? '' : `<button type="button" class="gr-remove" data-remove="${p.id}" aria-label="${i + 1}번째 사진 빼기">×</button>`}
       </figure>`).join('')}</div>` : ''}
       <p class="gr-tip">한 장에 한 페이지씩, 위에서 똑바로, 그림자 없이 찍어 주세요. 문제 번호가 잘리지 않게 해 주세요. (최대 ${MAX_PHOTOS}장)<br>답에 네모를 치지 않아도 되지만, 네모를 치면 더 정확하게 읽어요.</p>
-      <button class="primary" type="button" data-action="grade" ${state.busy || !state.photos.length || !state.bookId || (isStaff() && !state.studentId) ? 'disabled' : ''}>${state.busy ? '채점하는 중...' : state.photos.length > 1 ? `사진 ${state.photos.length}장 채점하기` : '채점하기'}</button>
+      <button class="primary" type="button" data-action="grade" ${state.busy || !state.photos.length || !state.bookId || (picksStudent() && !state.studentId) ? 'disabled' : ''}>${state.busy ? '채점하는 중...' : state.photos.length > 1 ? `사진 ${state.photos.length}장 채점하기` : '채점하기'}</button>
       <div class="gr-status ${state.statusError ? 'error' : ''}" role="status">${h(state.status)}</div>
     </div>
     ${state.failures.length ? `<div class="gr-failures"><p>빨간 테두리 사진은 채점하지 못했어요. 빼거나 다시 찍은 뒤 다시 채점해 주세요.</p>${[...new Set(state.failures)].map((f) => `<p>· ${h(f)}</p>`).join('')}</div>` : ''}
@@ -129,8 +133,9 @@ function viewCheck() {
 }
 
 function viewMine() {
-  return `<section class="panel gr-panel"><h2>내 채점 기록</h2>
-    <div class="gr-form">${bookSelect('myBookId', state.myBookId, false)}</div>
+  const childPick = isParent() && state.students.length > 1 ? `<label>자녀<select data-bind="studentId"><option value="">자녀 선택</option>${state.students.map((st) => `<option value="${st.id}" ${st.id === state.studentId ? 'selected' : ''}>${h(st.name)} ${h(st.school_year || '')}</option>`).join('')}</select></label>` : '';
+  return `<section class="panel gr-panel"><h2>${isParent() ? `${h(studentName(state.studentId) === '학생' ? '자녀' : studentName(state.studentId))} 채점 기록` : '내 채점 기록'}</h2>
+    <div class="gr-form">${childPick}${bookSelect('myBookId', state.myBookId, false)}</div>
     ${state.myRows.length ? summaryBadges(state.myRows) + `<div class="gr-chips">${state.myRows.map((r) => `<span class="gr-chip ${r.verdict}" title="${r.attempt}번째 시도">${r.no} ${VERDICT_LABEL[r.verdict]}</span>`).join('')}</div>` : '<p class="muted">아직 채점한 문제가 없어요.</p>'}
   </section>`;
 }
@@ -205,7 +210,8 @@ function viewKeys() {
 // ---------------------------------------------------------------- 데이터
 async function loadMine() {
   if (!state.myBookId) { state.myRows = []; return; }
-  const { data, error } = await db.rpc('grading_my_results', { p_book: state.myBookId });
+  if (isParent() && !state.studentId) { state.myRows = []; return; }
+  const { data, error } = await db.rpc('grading_my_results', isParent() ? { p_book: state.myBookId, p_student: state.studentId } : { p_book: state.myBookId });
   if (error) throw error;
   state.myRows = data || [];
 }
@@ -286,7 +292,7 @@ async function gradeOne(photo, say) {
   const up = await db.storage.from('academy-private').upload(path, page, { contentType: 'image/jpeg' });
   if (up.error) throw new Error('사진을 올리지 못했어요: ' + up.error.message);
   say('문제 번호 찾는 중');
-  const located = await invoke({ action: 'locate', bookId: state.bookId, photoPath: path, studentId: isStaff() ? state.studentId : undefined });
+  const located = await invoke({ action: 'locate', bookId: state.bookId, photoPath: path, studentId: picksStudent() ? state.studentId : undefined });
   say(`${located.problems.length}문제의 답을 읽는 중 (30초~1분)`);
   const crops = located.problems.map((p) => {
     const r = cropRect(p.box, W, H);
@@ -423,7 +429,7 @@ app.addEventListener('change', async (ev) => {
     }
     if (t.dataset.bind) {
       state[t.dataset.bind] = t.value;
-      if (t.dataset.bind === 'myBookId') await loadMine();
+      if (t.dataset.bind === 'myBookId' || (t.dataset.bind === 'studentId' && state.tab === 'mine')) await loadMine();
       if (t.dataset.bind === 'mxBookId') { state.mxRange = ''; await loadMatrix(); }
       if (t.dataset.bind === 'mxRange') await loadMatrix();
       return render();

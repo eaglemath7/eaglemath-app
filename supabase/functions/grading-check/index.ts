@@ -1,4 +1,4 @@
-// 자동채점 Edge Function (학생 본인 또는 직원이 호출).
+// 자동채점 Edge Function (학생 본인, 학부모(연결된 자녀), 직원이 호출).
 //
 // 1단계 locate: 업로드한 페이지 사진에서 인쇄된 문제 번호와 문제 영역을 찾습니다.
 // 2단계 grade : 브라우저가 문제별로 잘라 보낸 사진을 두 번 독립적으로 읽고,
@@ -251,13 +251,18 @@ Deno.serve(async (req) => {
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
     const { data: me } = await admin.from("profiles").select("id, role, active").eq("id", u.user.id).single();
     const staff = !!me?.active && ["admin", "deputy", "teacher", "assistant"].includes(me.role);
-    if (!me?.active || (!staff && me.role !== "student")) return json({ error: "학생 또는 선생님 계정으로 이용해주세요" }, 403);
+    const parent = !!me?.active && me.role === "parent";
+    if (!me?.active || (!staff && !parent && me.role !== "student")) return json({ error: "학생·학부모·선생님 계정으로 이용해주세요" }, 403);
 
     const body = await req.json();
 
     if (body.action === "locate") {
-      const studentId = staff ? String(body.studentId || "") : me.id;
+      const studentId = staff || parent ? String(body.studentId || "") : me.id;
       if (!studentId) return json({ error: "학생을 선택해주세요" }, 400);
+      if (parent) {
+        const { data: link } = await admin.from("parent_students").select("student_id").eq("parent_id", me.id).eq("student_id", studentId).maybeSingle();
+        if (!link) return json({ error: "연결된 자녀만 채점할 수 있어요" }, 403);
+      }
       const { data: st } = await admin.from("students").select("id").eq("id", studentId).single();
       if (!st) return json({ error: "학생을 찾을 수 없습니다" }, 404);
       const photoPath = String(body.photoPath || "");

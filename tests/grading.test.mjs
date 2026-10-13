@@ -80,6 +80,7 @@ grant usage on schema public,auth,storage to authenticated,service_role;
 grant select,insert on storage.objects to authenticated;`);
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/202609180001_academy_workflow.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/202610140001_auto_grading.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/202610140004_parent_grading.sql',import.meta.url),'utf8'));
 const ADM='00000000-0000-4000-8000-000000000001',S1='00000000-0000-4000-8000-000000000002',S2='00000000-0000-4000-8000-000000000003',PAR='00000000-0000-4000-8000-000000000004',T='00000000-0000-4000-8000-000000000005';
 await db.query(`insert into profiles(id,role,name) values($1,'admin','원장'),($2,'student','학생1'),($3,'student','학생2'),($4,'parent','학부모'),($5,'teacher','강사')`,[ADM,S1,S2,PAR,T]);
 await db.query(`insert into students(id,school_year) values($1,'초3'),($2,'초3')`,[S1,S2]);
@@ -130,4 +131,10 @@ assert.deepEqual([fixed.verdict,fixed.auto_verdict,fixed.confirmed_by],['O','pen
 // 교재 규칙은 원장만 수정
 await assert.rejects(async()=>{const r=await db.query(`update grading_books set rules='{"unit_optional":false}' returning id`);if(!r.rows.length)throw new Error('no rows');});
 await as(ADM);assert.equal((await db.query(`update grading_books set rules='{"unit_optional":false}' returning id`)).rows.length,1);
-console.log('PASS: judge rules for every answer type, two-reader agreement, crop math, answer keys hidden from students/parents, own latest results only, staff confirmation, admin-only key import and rules');
+// 학부모: 연결된 자녀 결과만, 정답은 못 봄
+await db.exec('reset role');await db.query('insert into parent_students values($1,$2)',[PAR,S1]);
+await as(PAR);
+assert.deepEqual((await db.query('select no,verdict from grading_my_results($1,$2)',[book,S1])).rows.map(r=>r.no),[1,20]);
+assert.equal((await db.query('select * from grading_my_results($1,$2)',[book,S2])).rows.length,0);
+assert.equal((await db.query('select * from grading_keys')).rows.length,0);
+console.log('PASS: judge rules for every answer type, two-reader agreement, crop math, answer keys hidden from students/parents, own latest results only, staff confirmation, admin-only key import and rules, parents see only their child');
