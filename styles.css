@@ -1117,3 +1117,12 @@ body.family-mobile .ac-kakao-contact { right:max(16px, calc(50vw - 220px + 16px)
 .ac-board .ac-task>.ac-task-actions small { margin:0; font-size:11px; white-space:nowrap; }
 /* 머리글은 불투명하게 */
 .topbar.tb { background:#fff; }
+
+/* 할 일: 제목 왼쪽 정렬, 아래 줄에 담당·우선순위·마감 */
+.ac-board .ac-task>.ac-task-main { display:grid; justify-content:stretch; justify-items:start; gap:2px; margin:0; text-align:left; }
+.ac-task-tools { gap:6px; }
+.ac-task-tools button { padding:6px 12px; font-size:13px; }
+.ac-board.ac-board-1 { grid-template-columns:1fr; }
+.ac-board.ac-board-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media(max-width:720px){ .ac-board.ac-board-2 { grid-template-columns:1fr; } }
+body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3 { grid-template-columns:1fr; }
