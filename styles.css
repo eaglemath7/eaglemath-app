@@ -1126,3 +1126,16 @@ body.family-mobile .ac-kakao-contact { right:max(16px, calc(50vw - 220px + 16px)
 .ac-board.ac-board-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
 @media(max-width:720px){ .ac-board.ac-board-2 { grid-template-columns:1fr; } }
 body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3 { grid-template-columns:1fr; }
+
+/* 선생님 화면 공지: 제목 한 줄, 누르면 펼침 */
+.home-notice-fold { border-top:1px solid var(--line); padding:10px 0 0; }
+.home-notice-fold:first-of-type { border-top:0; padding-top:0; }
+.home-notice-fold>summary { display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; list-style:none; }
+.home-notice-fold>summary::-webkit-details-marker { display:none; }
+.home-notice-fold>summary::after { content:'▾'; color:var(--muted); font-size:12px; transition:transform .15s; }
+.home-notice-fold[open]>summary::after { transform:rotate(180deg); }
+.home-notice-fold>summary strong { flex:1; min-width:0; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.home-notice-fold>summary .small { white-space:nowrap; }
+.home-notice-fold .notice-copy { margin:10px 0 6px; }
+.home-notice-actions { display:flex; justify-content:flex-end; }
+.home-notice-fold>summary { color:var(--ink); } .home-notice-fold>summary strong { color:var(--ink); font-weight:700; }

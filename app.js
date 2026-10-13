@@ -1836,7 +1836,10 @@ function renderHomeNotices() {
     .sort((a, b) => b.startDate.localeCompare(a.startDate));
   const active = notices.filter(item => item.startDate <= today && today <= item.endDate);
   const other = notices.filter(item => item.startDate > today || item.endDate < today);
-  const card = item => `<article class="home-notice"><div class="between"><strong>${escapeHtml(item.title)}</strong>${canAdmin() ? `<button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button>` : ""}</div><p class="notice-copy">${escapeHtml(item.note)}</p><div class="muted small">${escapeHtml(item.startDate)} ~ ${escapeHtml(item.endDate)}${item.visibility === "내부" ? " · 직원 전용" : ""}</div></article>`;
+  // 선생님·관리자 화면: 제목만 보이고, 누르면 내용이 펼쳐짐
+  const folded = item => `<details class="home-notice home-notice-fold"><summary><strong>${escapeHtml(item.title)}</strong><span class="muted small">${escapeHtml(item.startDate.slice(5).replace('-', '/'))}~${escapeHtml(item.endDate.slice(5).replace('-', '/'))}${item.visibility === "내부" ? " · 직원 전용" : ""}</span></summary><p class="notice-copy">${escapeHtml(item.note)}</p>${canAdmin() ? `<div class="home-notice-actions"><button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button></div>` : ""}</details>`;
+  const plain = item => `<article class="home-notice"><div class="between"><strong>${escapeHtml(item.title)}</strong>${canAdmin() ? `<button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button>` : ""}</div><p class="notice-copy">${escapeHtml(item.note)}</p><div class="muted small">${escapeHtml(item.startDate)} ~ ${escapeHtml(item.endDate)}${item.visibility === "내부" ? " · 직원 전용" : ""}</div></article>`;
+  const card = item => canTeacher() ? folded(item) : plain(item);
   return `<section class="panel stack home-notices" aria-label="공지사항"><div class="between"><h2 class="section-title">공지사항</h2>${canAdmin() ? `<button data-action="openNotice">공지 쓰기</button>` : ""}</div>${active.length ? active.map(card).join("") : `<p class="muted">현재 게시 중인 공지가 없습니다.</p>`}${canAdmin() && other.length ? `<details><summary>예정·지난 공지 ${other.length}개</summary>${other.map(card).join("")}</details>` : ""}</section>`;
 }
 
