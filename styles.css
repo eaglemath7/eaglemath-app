@@ -1139,3 +1139,16 @@ body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3
 .home-notice-fold .notice-copy { margin:10px 0 6px; }
 .home-notice-actions { display:flex; justify-content:flex-end; }
 .home-notice-fold>summary { color:var(--ink); } .home-notice-fold>summary strong { color:var(--ink); font-weight:700; }
+
+/* 공지 대상 고르기 */
+.notice-target { border:1px solid var(--line); border-radius:8px; padding:10px 12px; background:#fafbfc; }
+.notice-target>summary { cursor:pointer; font-weight:700; font-size:14px; }
+.notice-target>p { margin:8px 0 4px; }
+.notice-group { display:grid; gap:6px; margin-top:10px; }
+.notice-group>strong { font-size:12px; color:var(--muted); }
+.notice-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.notice-students { max-height:180px; overflow:auto; padding:2px; }
+.notice-chip { display:inline-flex; align-items:center; gap:4px; padding:5px 10px; border:1px solid var(--line); border-radius:999px; background:#fff; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; }
+.notice-chip input { width:auto; margin:0; }
+.notice-chip:has(input:checked) { border-color:var(--blue); background:#eef5ff; color:var(--blue); }
+.home-notice-target { margin-top:4px; font-size:12px; color:var(--blue); font-weight:600; }
