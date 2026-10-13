@@ -590,7 +590,7 @@ function renderTopbar() {
         ${canAdmin() ? nav('students','학생정보') + nav('admin','관리') : ''}
         ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
         ${session.type === 'student' ? nav('student','알림장') : ''}
-        ${session.role !== 'parent' ? `<a class="nav-link-button" href="./grading/${portal ? `?p=${portal}` : ''}">자동채점</a>` : ''}
+        <a class="nav-link-button" href="./grading/${portal ? `?p=${portal}` : ''}">자동채점</a>
         ${familyPortal ? '<button class="ghost" data-action="logout">나가기</button>' : ''}
       </nav>
     </header>
