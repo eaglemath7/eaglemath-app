@@ -1,6 +1,6 @@
 import { authPassword } from './auth-password.js?v=1';
 import { verifyRecordWriter } from './record-auth.js?v=1';
-import { createAcademy } from "./academy.js?v=41";
+import { createAcademy } from "./academy.js?v=42";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
@@ -561,6 +561,9 @@ function renderTopbar() {
   const childName = session.role === 'parent' ? academy.currentChildName() : '';
   const identity = `<div class="login-identity" aria-label="로그인 정보"><strong>${escapeHtml(currentUserName())}</strong><span>${roleLabel} 로그인</span>${childName ? `<small>보고 있는 자녀 · ${escapeHtml(childName)}</small>` : ''}</div>`;
   const nav = (target, label) => `<button class="${route === target ? 'primary' : 'ghost'}" data-route="${target}" ${route === target ? 'aria-current="page"' : ''}>${label}</button>`;
+  // 연결 상태는 작은 아이콘으로만 표시(마우스를 올리면 자세한 문구)
+  const syncIcon = syncStatus.startsWith('Supabase 연결됨') ? '🟢' : syncStatus === '불러오는 중' ? '⏳' : '⚠️';
+  const sync = `<span class="sync-dot" title="${escapeHtml(syncStatus)}" aria-label="${escapeHtml(syncStatus)}">${syncIcon}</span>`;
   return `
     <header class="topbar ${familyPortal ? 'ac-student-topbar' : ''}">
       <div class="brand">
@@ -569,22 +572,24 @@ function renderTopbar() {
           <strong>수학이 너희를 자유케하리라</strong>
           <span>${routeLabel()}</span>
         </div>
-        ${familyPortal ? identity : ""}
+        ${familyPortal ? identity + sync : ""}
       </div>
-      <div class="row">
-        <span class="badge">${escapeHtml(syncStatus)}</span>
-        ${familyPortal ? "" : identity}
-        ${nav('home','홈')}
-        ${canTeacher() ? nav('academy_class','오늘 수업') : ''}
-        ${canTeacher() && route === 'teacher' ? nav('teacher','강사 수업기록') : ''}
-        ${nav('academy_inbox','과제·질문')}${nav('academy_growth','성장기록')}
-        ${canTeacher() ? nav('academy_comments','더블체크') : ''}
-        ${canAdmin() ? nav('students','학생정보') + nav('admin','관리') : ''}
-        ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
-        ${session.type === 'student' ? nav('student','알림장') : ''}
-        ${session.role !== 'parent' ? `<a class="nav-link-button" href="./grading/${portal ? `?p=${portal}` : ''}">자동채점</a>` : ''}
-        <button class="${wideView ? 'selected' : 'ghost'}" data-action="toggleWideView" aria-pressed="${wideView}">${wideView ? '✓ 넓게 보기 켜짐' : '넓게 보기'}</button>
-        <button data-action="logout">나가기</button>
+      <div class="topbar-right">
+        ${familyPortal ? "" : sync + identity}
+        <nav class="topnav" aria-label="메뉴">
+          ${nav('home','홈')}
+          ${canTeacher() ? nav('academy_class','오늘 수업') : ''}
+          ${canTeacher() && route === 'teacher' ? nav('teacher','강사 수업기록') : ''}
+          ${nav('academy_inbox','과제·질문')}
+          ${canTeacher() ? nav('academy_growth','성장기록') : ''}
+          ${canTeacher() ? nav('academy_comments','더블체크') : ''}
+          ${canAdmin() ? nav('students','학생정보') + nav('admin','관리') : ''}
+          ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
+          ${session.type === 'student' ? nav('student','알림장') : ''}
+          ${session.role !== 'parent' ? `<a class="nav-link-button" href="./grading/${portal ? `?p=${portal}` : ''}">자동채점</a>` : ''}
+          <button class="${wideView ? 'selected' : 'ghost'}" data-action="toggleWideView" aria-pressed="${wideView}">${wideView ? '✓ 넓게' : '넓게 보기'}</button>
+          <button class="ghost" data-action="logout">나가기</button>
+        </nav>
       </div>
     </header>
   `;

@@ -1049,3 +1049,21 @@ a.nav-link-button {
   background: transparent;
 }
 a.nav-link-button:hover { border-color: #b7beca; }
+
+/* 상단 메뉴: 같은 크기의 작은 버튼 목록으로 정리 */
+.topbar-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; min-width:0; }
+.sync-dot { font-size:12px; line-height:1; cursor:default; user-select:none; }
+.topnav { display:flex; flex-wrap:wrap; gap:4px; }
+.topnav > button, .topnav > a.nav-link-button {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-height:32px; padding:5px 10px; border:1px solid var(--line); border-radius:7px;
+  background:#fff; color:var(--ink); font-size:13px; font-weight:600; white-space:nowrap; text-decoration:none;
+}
+.topnav > button[aria-current="page"] { background:var(--red); border-color:var(--red); color:#fff; }
+.topnav > button[aria-pressed="true"] { background:#e7f0ff; border-color:var(--blue); color:var(--blue); }
+@media (max-width:760px) {
+  .topbar, .topbar.ac-student-topbar { flex-wrap:wrap; align-items:center; }
+  .topbar-right { width:100%; justify-content:flex-start; }
+  .topnav { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); width:100%; gap:4px; }
+  .topnav > button, .topnav > a.nav-link-button { min-height:30px; padding:4px 2px; font-size:12px; }
+}
