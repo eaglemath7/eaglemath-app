@@ -1162,3 +1162,13 @@ body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3
 .tb-mini { border:0; background:none; padding:2px 4px; font-size:11px; font-weight:600; color:var(--muted); text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
 .tb-mini:hover { color:var(--ink); }
 .tb-mini + .tb-mini::before { content:'·'; margin-right:6px; color:#c0c6d0; text-decoration:none; display:inline-block; }
+
+/* 독수리 캘린더: 내 기록(파랑)·학원 일정(주황) 점 */
+.ac-student-calendar .ac-days button { flex-wrap:nowrap; }
+.ac-student-calendar .ac-event-dot { font-size:6px; color:#e07a10; }
+.ac-student-calendar .selected .ac-event-dot { color:#ffd9a8; }
+.ac-cal-legend .ac-record-dot { color:#15549a; font-size:9px; }
+.ac-cal-legend .ac-event-dot { color:#e07a10; font-size:9px; margin-left:6px; }
+.ac-day-events p { margin:6px 0; }
+.ac-day-records>h3 { margin:6px 0 10px; }
+.ac-student-calendar .ac-days button.ac-academy-closed:not(.selected) { color:#b85a0a; background:#fff6ea; }
