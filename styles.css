@@ -1152,3 +1152,7 @@ body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3
 .notice-chip input { width:auto; margin:0; }
 .notice-chip:has(input:checked) { border-color:var(--blue); background:#eef5ff; color:var(--blue); }
 .home-notice-target { margin-top:4px; font-size:12px; color:var(--blue); font-weight:600; }
+
+.ac-reflection-done-list { margin-top:12px; }
+.ac-reflection-done-list>summary { cursor:pointer; color:var(--muted); font-size:13px; font-weight:600; }
+.ac-reflection-done { opacity:.75; }
