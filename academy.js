@@ -230,7 +230,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   function studentSessionList(){return sessionDay===date()?lessonSessions.filter(s=>s.studentId===current()):[];}
   function studentSessionsPanel(){
     const list=studentSessionList();
-    return `<section class="panel"><h3>오늘의 수업</h3>${list.map(s=>{const own=rows('reflection').find(r=>r.student_id===current()&&r.day===date()&&r.body.period===s.period);return `<div class="ac-line"><span><strong>${h(s.period.replace(/보충/g,'수업'))}</strong>${badge(lessonSessionStatus(parent(),own,rows('lesson').some(i=>i.student_id===current()&&i.day===date()&&i.status==='published'&&i.body.period===s.period)))}</span>${!parent()?btn(own?'세 줄 학습 정리 확인':'세 줄 학습 정리 쓰기','reflection-session',s.period):''}</div>`;}).join('')||empty('오늘 배정된 수업이 없습니다.')}</section>`;
+    if(!list.length)return ''; // 배정된 수업이 없으면 카드 자체를 숨김
+    return `<section class="panel"><h3>오늘의 수업</h3>${list.map(s=>{const own=rows('reflection').find(r=>r.student_id===current()&&r.day===date()&&r.body.period===s.period);return `<div class="ac-line"><span><strong>${h(s.period.replace(/보충/g,'수업'))}</strong>${badge(lessonSessionStatus(parent(),own,rows('lesson').some(i=>i.student_id===current()&&i.day===date()&&i.status==='published'&&i.body.period===s.period)))}</span>${!parent()?btn(own?'세 줄 학습 정리 확인':'세 줄 학습 정리 쓰기','reflection-session',s.period):''}</div>`;}).join('')}</section>`;
   }
   function classView(){
     const schedules=classLessonStudents();const periods=[...new Set(schedules.map(s=>s.period))];if(!periods.includes(period))period=periods[0]||'';
@@ -264,7 +265,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     return /Z$|[+-]\d\d:\d\d$/.test(value)?journalTime(value):String(value).replace('T',' ');
   }
   function currentHomeworkPanel(){
-    const id=current(),list=homeworkOverview(items,legacyRecords,id,date(),{student:!parent()});
+    // 같은 숙제가 알림장 여러 개에 들어 있어도 한 번만 보여줍니다.
+    const id=current(),list=homeworkOverview(items,legacyRecords,id,date(),{student:!parent()}).filter((x,i,all)=>all.findIndex(y=>String(y.text).trim()===String(x.text).trim()&&String(y.due||'')===String(x.due||''))===i);
     const refs=parent()?[]:rows('reflection').filter(r=>r.student_id===id&&r.status!=='draft'&&r.body.feedback).sort((a,b)=>b.day.localeCompare(a.day)).slice(0,3);
     const messages=parent()?[]:rows('student_message').filter(r=>r.student_id===id&&r.body.text).sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,3);
     return `<section class="panel ac-current-homework"><div class="between"><h2>해야 할 과제</h2>${!parent()?btn('선생님께 질문','question'):btn('과제 문의하기','question')}</div>${list.map(x=>`<article><small>${h(x.day)} · ${h(x.source)} ${h(lessonTime(x.period))}</small><p class="notice-copy"><strong>${h(x.text)}</strong></p><p class="ac-homework-deadline">마감 · ${h(dueLabel(x.due))}</p></article>`).join('')||empty('선생님이 확인한 과제가 아직 없습니다.')}${refs.length||messages.length?`<h3>선생님의 피드백</h3>${refs.map(r=>`<p class="notice-copy"><small>${h(r.day)}</small><br>${h(r.body.feedback)}</p>${btn('내가 쓴 글 보기','reflection-date',r.day+'|'+(r.body.period||''))}`).join('')}${messages.map(m=>`<p class="notice-copy">${h(m.body.text)}</p>`).join('')}`:''}</section>`;
@@ -295,15 +297,20 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const refs=rows('reflection').filter(i=>i.student_id===id),legacy=legacyRecords.filter(r=>r.student_id===id);
     const homework=currentAssignments(lessons,legacy,id,date());
     const plans=rows('class_plan').filter(i=>i.student_id===id&&i.day===date());
-    const detail=(label,value)=>value?`<p class="notice-copy"><span class="muted">${label}</span><br>${h(value)}</p>`:'';
+    // 같은 날짜 화면에서 이미 보여준 문장(숙제 등)은 다시 보여주지 않습니다.
+    const shown=new Set(journalDay===date()?homework.map(x=>String(x.assignment||'').trim()):[]);
+    // 오늘 숙제는 맨 위 '해야 할 과제'에서 한 번만 보여줍니다.
+    const detail=(label,value)=>{const v=String(value||'').trim();if(!v||shown.has(v)||(label==='숙제'&&journalDay===date()))return '';shown.add(v);return `<p class="notice-copy"><span class="muted">${label}</span><br>${h(v)}</p>`;};
+    const seenLessons=new Set();
+    const dayLessons=lessons.filter(i=>i.day===journalDay).filter(i=>{const k=[i.body.period,i.body.content,i.body.assignment].join('|');if(seenLessons.has(k))return false;seenLessons.add(k);return true;});
     const cards=refs.filter(i=>i.day===journalDay).map(i=>`<article class="panel"><div class="between"><h3>내 수업 기록</h3>${badge(i.status)}</div><small>${h(i.body.period||'')}${i.created_at&&new Date(i.created_at).toLocaleDateString('en-CA',{timeZone:'Asia/Seoul'})>i.day?' · 늦게 작성한 기록':''}</small>${detail('공부한 내용',i.body.learned)}${detail('숙제',i.body.assignment)}${detail('오늘의 생각',i.body.feeling)}${detail('선생님의 한마디',i.body.feedback)}${btn(i.status==='approved'?'확인하기':'이어서 쓰기','reflection-date',i.day+'|'+(i.body.period||''))}</article>`).join('')+
-      lessons.filter(i=>i.day===journalDay).map(i=>`<article class="panel"><div class="between"><h3>선생님 수업 알림장</h3>${btn('내용·대화','lesson',i.id)}</div>${detail('공부한 내용',i.body.content)}${detail('숙제',i.body.assignment)}</article>`).join('')+
+      dayLessons.map(i=>{const body=detail('공부한 내용',i.body.content)+detail('숙제',i.body.assignment);return `<article class="panel"><div class="between"><h3>선생님 수업 알림장${i.body.period&&dayLessons.length>1?` <small class="muted">${h(lessonTime(i.body.period))}</small>`:''}</h3>${btn('내용·대화','lesson',i.id)}</div>${body||'<p class="muted small">위 기록과 같은 내용이에요.</p>'}</article>`;}).join('')+
       legacy.filter(i=>i.lesson_date===journalDay).map(i=>`<article class="panel"><h3>수업 알림장</h3>${detail('공부한 내용',i.content)}${detail('숙제',i.assignment)}${detail('선생님의 한마디',i.student_message)}</article>`).join('');
-    return `${currentHomeworkPanel()}<section class="panel ac-reflection-entry"><div><h2 class="section-title">오늘의 수업 기록</h2><p>공부한 내용 · 숙제 · 오늘의 생각</p></div>${btn('작성하기','reflection','','primary')}</section>${studentSessionsPanel()}${plans.length?`<section class="panel"><h3>오늘 수업 안내</h3>${plans.map(p=>`<p class="notice-copy">${h(p.body.content||'')}</p><p>${h(p.body.assignment||'')}</p>`).join('')}</section>`:''}<section class="panel ac-student-calendar"><div class="between"><h3>수업 달력</h3>${btn('오늘','journal-today')}</div><div class="between">${btn('‹','journal-prev')}<strong>${h(journalMonth)}</strong>${btn('›','journal-next')}</div><div class="ac-week">${['일','월','화','수','목','금','토'].map(d=>`<span>${d}</span>`).join('')}</div><div class="ac-days">${journalCalendarDays(journalMonth).map((d,index)=>{
+    return `${currentHomeworkPanel()}<section class="panel ac-reflection-entry"><div><h2 class="section-title">오늘의 수업 기록</h2><p>공부한 내용 · 숙제 · 오늘의 생각</p></div>${btn('작성하기','reflection','','primary')}</section>${studentSessionsPanel()}${plans.some(p=>p.body.content&&p.body.content!==p.body.assignment)?`<section class="panel"><h3>오늘 수업 안내</h3>${plans.filter(p=>p.body.content&&p.body.content!==p.body.assignment).map(p=>`<p class="notice-copy">${h(p.body.content)}</p>`).join('')}</section>`:''}<section class="panel ac-student-calendar"><div class="between"><h3>수업 달력</h3>${btn('오늘','journal-today')}</div><div class="between">${btn('‹','journal-prev')}<strong>${h(journalMonth)}</strong>${btn('›','journal-next')}</div><div class="ac-week">${['일','월','화','수','목','금','토'].map(d=>`<span>${d}</span>`).join('')}</div><div class="ac-days">${journalCalendarDays(journalMonth).map((d,index)=>{
       const own=refs.filter(i=>i.day===d),published=lessons.some(i=>i.day===d)||legacy.some(i=>i.lesson_date===d);
       const label=own.some(i=>i.status==='returned')?'수정':own.some(i=>i.status==='draft')?'작성 중':own.length?'작성':published?'알림장':'';
       return `<button type="button" data-ac="journal-day" data-id="${d}" aria-label="${d} ${label}" aria-pressed="${d===journalDay}" class="${d===journalDay?'selected ':''}${d.slice(0,7)!==journalMonth?'ac-outside-month ':''}${index%7===0?'ac-sunday':index%7===6?'ac-saturday':''}">${Number(d.slice(-2))}${label?'<span class="ac-record-dot" aria-hidden="true">●</span>':''}</button>`;
-    }).join('')}</div><p class="muted small">날짜를 눌러 기록을 확인하거나 지난 수업을 적어보세요.</p></section><section><div class="between"><h3>${h(journalDay)} 수업 기록</h3>${journalDay<=date()?btn('기록 쓰기','reflection-date',journalDay):''}</div>${cards||empty(journalDay>date()?'아직 수업 전이에요.':'작성된 기록이 없습니다.')}</section>`;
+    }).join('')}</div><p class="muted small">날짜를 눌러 기록을 확인하거나 지난 수업을 적어보세요.</p></section><section><div class="between"><h3>${h(journalDay)} 수업 기록</h3>${journalDay<date()?btn('지난 수업 기록 쓰기','reflection-date',journalDay):''}</div>${cards||empty(journalDay>date()?'아직 수업 전이에요.':'작성된 기록이 없습니다.')}</section>`;
   }
   const reviewFor=id=>requiredReviews.find(r=>r.source_id===id);
   const assignedToMe=id=>c().state.schedules.some(s=>s.studentId===id&&s.teacherIds?.includes(uid()));
