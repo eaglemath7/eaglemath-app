@@ -1,6 +1,6 @@
 import { authPassword } from './auth-password.js?v=1';
 import { verifyRecordWriter } from './record-auth.js?v=1';
-import { createAcademy } from "./academy.js?v=48";
+import { createAcademy } from "./academy.js?v=49";
 import { enableMobileShell } from './mobile-shell.js?v=1';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -578,7 +578,7 @@ function renderTopbar() {
           <img src="./logo.png" alt="독수리수학 로고" />
           <strong class="tb-slogan">수학이 너희를 자유케하리라</strong>
         </div>
-        <div class="tb-id">${identity}${sync}</div>
+        <div class="tb-id">${identity}${sync}${familyPortal ? '' : `<span class="tb-mini-links"><button type="button" class="tb-mini" data-action="toggleWideView" title="${wideView ? '휴대폰 화면으로 보기' : '컴퓨터에서 넓게 보기'}">${wideView ? '모바일' : 'PC 버전'}</button><button type="button" class="tb-mini" data-action="logout">나가기</button></span>`}</div>
       </div>
       <nav class="topnav" aria-label="메뉴">
         ${nav('home','홈')}
@@ -591,8 +591,7 @@ function renderTopbar() {
         ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
         ${session.type === 'student' ? nav('student','알림장') : ''}
         ${session.role !== 'parent' ? `<a class="nav-link-button" href="./grading/${portal ? `?p=${portal}` : ''}">자동채점</a>` : ''}
-        ${familyPortal ? '' : `<button class="ghost" data-action="toggleWideView" aria-pressed="false" title="${wideView ? '휴대폰 화면으로 보기' : '컴퓨터에서 넓게 보기 · 학생 검색 등'}">${wideView ? '모바일 보기' : 'PC 버전'}</button>`}
-        <button class="ghost" data-action="logout">나가기</button>
+        ${familyPortal ? '<button class="ghost" data-action="logout">나가기</button>' : ''}
       </nav>
     </header>
   `;

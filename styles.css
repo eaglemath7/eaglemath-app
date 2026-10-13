@@ -1156,3 +1156,9 @@ body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3
 .ac-reflection-done-list { margin-top:12px; }
 .ac-reflection-done-list>summary { cursor:pointer; color:var(--muted); font-size:13px; font-weight:600; }
 .ac-reflection-done { opacity:.75; }
+
+/* 선생님 화면: 이름 옆 작은 'PC 버전 · 나가기' */
+.tb-mini-links { display:inline-flex; align-items:center; gap:2px; margin-left:2px; }
+.tb-mini { border:0; background:none; padding:2px 4px; font-size:11px; font-weight:600; color:var(--muted); text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
+.tb-mini:hover { color:var(--ink); }
+.tb-mini + .tb-mini::before { content:'·'; margin-right:6px; color:#c0c6d0; text-decoration:none; display:inline-block; }
