@@ -1101,3 +1101,19 @@ body.family-mobile .ac-dialog, body.family-mobile .ac-reflection-dialog { max-wi
 .topbar.tb-wide .tb-head, .topbar.tb-wide .topnav { width:100%; }
 /* 휴대폰 폭 화면 안쪽 오른쪽 아래에 카카오톡 문의 버튼 */
 body.family-mobile .ac-kakao-contact { right:max(16px, calc(50vw - 220px + 16px)); }
+
+/* 할 일: 칸마다 하나의 상자 안에 줄 목록으로 */
+.ac-board>section { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+.ac-board>[data-task-status] { min-height:0; }
+.ac-board h4 { margin:0 0 4px; padding-bottom:6px; border-bottom:1px solid var(--line); font-size:13px; }
+.ac-board .ac-empty { padding:10px 0 4px; font-size:12px; text-align:center; }
+.ac-board .ac-task { display:flex; align-items:center; gap:8px; margin:0; padding:8px 2px; border:0; border-bottom:1px solid #eef1f5; border-radius:0; background:transparent; font-size:13px; }
+.ac-board .ac-task:last-child { border-bottom:0; }
+.ac-task-main { flex:1; min-width:0; display:grid; gap:2px; }
+.ac-task-main strong { font-size:14px; font-weight:700; line-height:1.35; }
+.ac-task-meta { display:block; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ac-task-meta .ac-priority { margin:0; padding:1px 6px; font-size:11px; }
+.ac-board .ac-task>.ac-task-actions { display:flex; align-items:center; gap:4px; margin:0; flex-shrink:0; }
+.ac-board .ac-task>.ac-task-actions small { margin:0; font-size:11px; white-space:nowrap; }
+/* 머리글은 불투명하게 */
+.topbar.tb { background:#fff; }
