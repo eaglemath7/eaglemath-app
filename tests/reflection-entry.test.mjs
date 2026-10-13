@@ -3,12 +3,12 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {currentAssignments,journalCalendarDays} from '../academy.js';
 const source=fs.readFileSync('academy.js','utf8');
-const ctx={currentHomeworkPanel:()=>'',parentMessageCollection:()=>'',currentAssignments,journalCalendarDays,h:x=>x||'',badge:x=>x,journalDay:'2026-10-08',journalMonth:'2026-10',parent:()=>false,parentLearningSummary:()=> 'PARENT_VIEW',current:()=> 'student',rows:()=>[],date:()=> '2026-10-08',studentSessionsPanel:()=> 'NO_SESSIONS',legacyRecords:[],empty:x=>x,btn:(label,action)=>`<button data-ac="${action}">${label}</button>`};
+const ctx={c:()=>({state:{academicEvents:[]}}),holiday:()=>'',currentHomeworkPanel:()=>'',parentMessageCollection:()=>'',currentAssignments,journalCalendarDays,h:x=>x||'',badge:x=>x,journalDay:'2026-10-08',journalMonth:'2026-10',parent:()=>false,parentLearningSummary:()=> 'PARENT_VIEW',current:()=> 'student',rows:()=>[],date:()=> '2026-10-08',studentSessionsPanel:()=> 'NO_SESSIONS',legacyRecords:[],empty:x=>x,btn:(label,action)=>`<button data-ac="${action}">${label}</button>`};
 vm.createContext(ctx);
-vm.runInContext(source.slice(source.indexOf('  function learningSummary(){'),source.indexOf('  const reviewFor=',source.indexOf('  function learningSummary(){'))),ctx);
+vm.runInContext(source.slice(source.indexOf('  const ACADEMY_CLOSED='),source.indexOf('  const reviewFor=',source.indexOf('  function learningSummary(){'))),ctx);
 const html=ctx.learningSummary();
 assert.match(html,/작성하기/);
-assert.ok(html.indexOf('작성하기')<html.indexOf('NO_SESSIONS'));
+assert.ok(html.indexOf('작성하기')>html.indexOf('수업 기록'));   // 쓰기 버튼은 날짜별 수업 기록 상자 안에
 ctx.parent=()=>true;
 assert.equal(ctx.learningSummary(),'PARENT_VIEW');
 Object.assign(ctx,{studentSessionList:()=>[],reflectionSessions:[],reflectionDay:'2026-10-08',period:'',uid:()=> 'student',h:x=>x||'',input:()=>'',area:(label,name)=>`<textarea name="${name}">${label}</textarea>`,form:(title,kind,fields)=>title+fields});
