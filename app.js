@@ -164,7 +164,7 @@ async function loadAllData() {
     const [events, kids, staffDirectory] = await Promise.all([supabase.from("academic_events").select("*"), supabase.rpc("academy_children"), supabase.from("staff_directory").select("id,name,role")]);
     state.teachers = (staffDirectory.data || []).map(r => ({id:r.id,name:r.name,role:r.role,active:true}));
     syncStatus = [events,kids,staffDirectory].some(r=>r.error) ? "일부 정보 연결 실패 · 새로고침해주세요" : `Supabase 연결됨 · ${formatKoreanDate(todayIso())}`;
-    state.academicEvents = (events.data || []).map(r => ({id:r.id,title:r.title,startDate:r.start_date,endDate:r.end_date,type:r.type,visibility:r.visibility,note:r.note||""}));
+    state.academicEvents = (events.data || []).map(r => ({id:r.id,title:r.title,startDate:r.start_date,endDate:r.end_date,type:r.type,visibility:r.visibility,note:r.note||"",audience:r.audience||"all",target:r.target||{}}));
     state.students = (kids.data || []).map(r => ({id:r.id,name:r.name,schoolYear:r.school_year,schoolName:r.school_name}));
     return;
   }
@@ -235,7 +235,8 @@ async function loadAllData() {
 
   state.academicEvents = toList(eventsRes.data).map((row) => ({
     id: row.id, title: row.title, startDate: row.start_date, endDate: row.end_date,
-    type: row.type, visibility: row.visibility, note: row.note || ""
+    type: row.type, visibility: row.visibility, note: row.note || "",
+    audience: row.audience || "all", target: row.target || {}
   }));
 
   state.records = toList(recordsRes.data).map((row) => ({
@@ -1837,7 +1838,7 @@ function renderHomeNotices() {
   const active = notices.filter(item => item.startDate <= today && today <= item.endDate);
   const other = notices.filter(item => item.startDate > today || item.endDate < today);
   // 선생님·관리자 화면: 제목만 보이고, 누르면 내용이 펼쳐짐
-  const folded = item => `<details class="home-notice home-notice-fold"><summary><strong>${escapeHtml(item.title)}</strong><span class="muted small">${escapeHtml(item.startDate.slice(5).replace('-', '/'))}~${escapeHtml(item.endDate.slice(5).replace('-', '/'))}${item.visibility === "내부" ? " · 직원 전용" : ""}</span></summary><p class="notice-copy">${escapeHtml(item.note)}</p>${canAdmin() ? `<div class="home-notice-actions"><button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button></div>` : ""}</details>`;
+  const folded = item => `<details class="home-notice home-notice-fold"><summary><strong>${escapeHtml(item.title)}</strong><span class="muted small">${escapeHtml(item.startDate.slice(5).replace('-', '/'))}~${escapeHtml(item.endDate.slice(5).replace('-', '/'))}</span></summary><div class="home-notice-target">${escapeHtml(noticeTargetLabel(item))}</div><p class="notice-copy">${escapeHtml(item.note)}</p>${canAdmin() ? `<div class="home-notice-actions"><button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button></div>` : ""}</details>`;
   const plain = item => `<article class="home-notice"><div class="between"><strong>${escapeHtml(item.title)}</strong>${canAdmin() ? `<button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button>` : ""}</div><p class="notice-copy">${escapeHtml(item.note)}</p><div class="muted small">${escapeHtml(item.startDate)} ~ ${escapeHtml(item.endDate)}${item.visibility === "내부" ? " · 직원 전용" : ""}</div></article>`;
   const card = item => canTeacher() ? folded(item) : plain(item);
   return `<section class="panel stack home-notices" aria-label="공지사항"><div class="between"><h2 class="section-title">공지사항</h2>${canAdmin() ? `<button data-action="openNotice">공지 쓰기</button>` : ""}</div>${active.length ? active.map(card).join("") : `<p class="muted">현재 게시 중인 공지가 없습니다.</p>`}${canAdmin() && other.length ? `<details><summary>예정·지난 공지 ${other.length}개</summary>${other.map(card).join("")}</details>` : ""}</section>`;
@@ -1868,17 +1869,87 @@ function renderNoticeForm() {
     <label>제목<input name="title" maxlength="150" value="${escapeHtml(item?.title || "")}" placeholder="예: 추석 연휴 수업 안내" required /></label>
     <label>내용<textarea name="note" rows="6" placeholder="안내할 내용을 적어주세요." required>${escapeHtml(item?.note || "")}</textarea></label>
     <div class="grid two"><label>게시 시작<input type="date" name="startDate" value="${item?.startDate || todayIso()}" required /></label><label>게시 종료<input type="date" name="endDate" value="${item?.endDate || addDays(todayIso(), 7)}" required /></label></div>
-    <label>공개 대상<select name="visibility"><option value="전체" ${item?.visibility !== "내부" ? "selected" : ""}>전체</option><option value="내부" ${item?.visibility === "내부" ? "selected" : ""}>직원 전용</option></select></label>
+    ${renderNoticeAudience(item)}
     <p class="muted small">입력 내용은 이 기기에 임시저장됩니다. 공지 등록을 눌러야 게시됩니다.</p>
     <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button type="submit" class="primary">${saved ? "저장" : "공지 등록"}</button></div></form>`;
+}
+
+// ---- 공지 대상: 학생/학부모 + 학교급·학년·학교·개별 학생 ----
+const NOTICE_GRADES = ["초1","초2","초3","초4","초5","초6","중1","중2","중3","고1","고2","고3"];
+function noticeAudienceValue(item) {
+  if (item?.visibility === "내부") return "staff";
+  return item?.audience === "student" || item?.audience === "parent" ? item.audience : "all";
+}
+function parseNoticeTarget(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  try { return JSON.parse(value) || {}; } catch { return {}; }
+}
+function noticeTargetStudents(target) {
+  const t = parseNoticeTarget(target);
+  const any = ["levels","grades","schools","students"].some(k => (t[k] || []).length);
+  return toList(state.students).filter(st => !any
+    || (t.levels || []).includes(String(st.schoolYear || "").slice(0, 1))
+    || (t.grades || []).includes(st.schoolYear || "")
+    || (t.schools || []).includes(st.schoolName || "")
+    || (t.students || []).includes(st.id));
+}
+function noticeTargetLabel(item) {
+  if (item.visibility === "내부") return "직원 전용";
+  const who = { all: "학생·학부모", student: "학생", parent: "학부모" }[item.audience || "all"] || "학생·학부모";
+  const t = parseNoticeTarget(item.target);
+  const names = (t.students || []).map(id => toList(state.students).find(st => st.id === id)?.name).filter(Boolean);
+  const parts = [...(t.levels || []).map(l => l + "등부"), ...(t.grades || []), ...(t.schools || []), ...(names.length > 3 ? [`${names.slice(0, 3).join("·")} 외 ${names.length - 3}명`] : names)];
+  return parts.length ? `${who} · ${parts.join(", ")}` : `${who} 전체`;
+}
+function renderNoticeAudience(item) {
+  const audience = noticeAudienceValue(item);
+  const t = parseNoticeTarget(item?.target);
+  const students = [...toList(state.students)].sort((a, b) => (a.name || "").localeCompare(b.name || "", "ko"));
+  const schools = [...new Set(students.map(st => st.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
+  const grades = NOTICE_GRADES.filter(g => students.some(st => st.schoolYear === g));
+  const box = (kind, value, label, checked) => `<label class="notice-chip"><input type="checkbox" data-notice-target="${kind}" value="${escapeHtml(value)}" ${checked ? "checked" : ""}/><span>${escapeHtml(label)}</span></label>`;
+  const has = (k, v) => (t[k] || []).includes(v);
+  const picked = ["levels","grades","schools","students"].some(k => (t[k] || []).length);
+  return `<label>보는 사람<select name="audience" data-notice-audience>
+      <option value="all" ${audience === "all" ? "selected" : ""}>학생 + 학부모</option>
+      <option value="student" ${audience === "student" ? "selected" : ""}>학생만</option>
+      <option value="parent" ${audience === "parent" ? "selected" : ""}>학부모만</option>
+      <option value="staff" ${audience === "staff" ? "selected" : ""}>직원 전용</option>
+    </select></label>
+    <input type="hidden" name="target" value="${escapeHtml(JSON.stringify(t))}" />
+    <details class="notice-target" ${picked ? "open" : ""} ${audience === "staff" ? "hidden" : ""}>
+      <summary>받는 그룹 고르기 <span class="muted small" data-notice-count>${picked ? "" : "· 고르지 않으면 모두에게"}</span></summary>
+      <p class="muted small">고른 그룹 중 하나라도 해당하는 학생에게 보여요. 학부모 공지는 그 학생의 학부모에게 보여요.</p>
+      <div class="notice-group"><strong>학교급</strong><div class="notice-chips">${["초","중","고"].map(l => box("levels", l, l + "등부", has("levels", l))).join("")}</div></div>
+      ${grades.length ? `<div class="notice-group"><strong>학년</strong><div class="notice-chips">${grades.map(g => box("grades", g, g, has("grades", g))).join("")}</div></div>` : ""}
+      ${schools.length ? `<div class="notice-group"><strong>학교</strong><div class="notice-chips">${schools.map(sc => box("schools", sc, sc, has("schools", sc))).join("")}</div></div>` : ""}
+      <div class="notice-group"><strong>학생 개별 선택</strong><input type="search" data-notice-search placeholder="이름으로 찾기" aria-label="학생 이름으로 찾기" />
+        <div class="notice-chips notice-students">${students.map(st => `<span data-notice-student="${escapeHtml(st.name || "")}">${box("students", st.id, `${st.name || ""} ${st.schoolYear || ""}`.trim(), has("students", st.id))}</span>`).join("")}</div></div>
+    </details>`;
+}
+function syncNoticeTarget(form) {
+  const t = {};
+  form.querySelectorAll("[data-notice-target]:checked").forEach(el => { (t[el.dataset.noticeTarget] ||= []).push(el.value); });
+  form.querySelector('input[name="target"]').value = JSON.stringify(t);
+  const any = Object.keys(t).length;
+  const count = form.querySelector("[data-notice-count]");
+  if (count) count.textContent = any ? `· 학생 ${noticeTargetStudents(t).length}명 해당` : "· 고르지 않으면 모두에게";
+  const staffOnly = form.querySelector("[data-notice-audience]")?.value === "staff";
+  const details = form.querySelector(".notice-target");
+  if (details) details.hidden = staffOnly;
 }
 
 async function saveNotice(data) {
   if (!canAdmin()) return false;
   if (!data.title?.trim() || !data.note?.trim()) { showMessage("제목과 내용을 입력해주세요."); return false; }
   if (!data.startDate || !data.endDate || data.endDate < data.startDate) { showMessage("게시 종료일은 시작일 이후로 선택해주세요."); return false; }
-  if (!["전체", "내부"].includes(data.visibility)) return false;
-  const payload = { title: data.title.trim(), note: data.note.trim(), start_date: data.startDate, end_date: data.endDate, type: "안내", visibility: data.visibility };
+  if (!["all", "student", "parent", "staff"].includes(data.audience)) return false;
+  const staffOnly = data.audience === "staff";
+  const target = staffOnly ? {} : parseNoticeTarget(data.target);
+  if (!staffOnly && Object.keys(target).length && !noticeTargetStudents(target).length) { showMessage("고른 그룹에 해당하는 학생이 없어요. 그룹을 다시 확인해주세요."); return false; }
+  const payload = { title: data.title.trim(), note: data.note.trim(), start_date: data.startDate, end_date: data.endDate, type: "안내",
+    visibility: staffOnly ? "내부" : "전체", audience: staffOnly ? "all" : data.audience, target };
   const query = supabase.from("academic_events");
   const { error } = await (data.id ? query.update(payload).eq("id", data.id).eq("type", "안내") : query.insert(payload));
   if (error) { showMessage(`공지 저장 실패: ${error.message}`); return false; }
@@ -2447,6 +2518,14 @@ function handleGlobalSubmit(event) {
 }
 
 function handleGlobalInput(event) {
+  const noticeForm = event.target.closest('form[data-form="notice"]');
+  if (noticeForm) {
+    if (event.target.matches("[data-notice-search]")) {
+      const q = event.target.value.trim();
+      noticeForm.querySelectorAll("[data-notice-student]").forEach(el => { el.hidden = !!q && !el.dataset.noticeStudent.includes(q); });
+    }
+    if (event.target.matches("[data-notice-target], [data-notice-audience]")) syncNoticeTarget(noticeForm);
+  }
   const bulkForm=event.target.closest('form[data-form="bulkMaterial"]');
   if(bulkForm)modal.materialDraft=Object.fromEntries(new FormData(bulkForm));
   if(event.target.matches('select[data-action="filterPickerLevel"]')){
