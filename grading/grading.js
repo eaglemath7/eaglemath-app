@@ -10,6 +10,8 @@ const db = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, portal ? { auth:
 const backHref = portal ? `./${portal}/` : './';
 const app = document.getElementById('app');
 const STAFF = ['admin', 'deputy', 'teacher', 'assistant'];
+const MAX_PHOTOS = 20;
+const PHOTO_STATE = { ready: '대기', working: '채점 중', done: '완료', failed: '다시 찍기 필요' };
 // Supabase Edge Function 주소(slug)
 const GRADING_FUNCTION = 'grading-check';
 
@@ -18,7 +20,7 @@ const h = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<'
 const state = {
   me: null, tab: 'check', books: [], students: [],
   // 채점하기
-  bookId: '', studentId: '', file: null, previewUrl: '', status: '', statusError: false, busy: false, results: null,
+  bookId: '', studentId: '', photos: [], status: '', statusError: false, busy: false, results: null, failures: [],
   // 내 기록
   myBookId: '', myRows: [],
   // 결과표
@@ -105,12 +107,19 @@ function viewCheck() {
     <div class="gr-form">
       ${bookSelect('bookId', state.bookId)}
       ${isStaff() ? `<label>학생<select data-bind="studentId"><option value="">학생 선택</option>${state.students.map((s) => `<option value="${s.id}" ${s.id === state.studentId ? 'selected' : ''}>${h(s.name)} ${h(s.school_year || '')}</option>`).join('')}</select></label>` : ''}
-      <label class="gr-photo-btn">${state.file ? '다른 사진으로 바꾸기' : '페이지 사진 찍기 / 고르기'}<input type="file" accept="image/*" capture="environment" data-photo /></label>
-      ${state.previewUrl ? `<img class="gr-preview" src="${state.previewUrl}" alt="찍은 페이지" />` : ''}
-      <p class="gr-tip">한 페이지씩, 위에서 똑바로, 그림자 없이 찍어 주세요. 문제 번호가 잘리지 않게 해 주세요.<br>답에 네모를 치지 않아도 되지만, 네모를 치면 더 정확하게 읽어요.</p>
-      <button class="primary" type="button" data-action="grade" ${state.busy || !state.file || !state.bookId || (isStaff() && !state.studentId) ? 'disabled' : ''}>${state.busy ? '채점하는 중...' : '채점하기'}</button>
+      <div class="gr-photo-row">
+        <label class="gr-photo-btn">카메라로 찍기<span class="small">한 장 찍을 때마다 아래에 쌓여요</span><input type="file" accept="image/*" capture="environment" data-photo ${state.busy ? 'disabled' : ''} /></label>
+        <label class="gr-photo-btn">앨범에서 여러 장 고르기<span class="small">찍어 둔 사진을 한꺼번에</span><input type="file" accept="image/*" multiple data-photo ${state.busy ? 'disabled' : ''} /></label>
+      </div>
+      ${state.photos.length ? `<div class="gr-thumbs">${state.photos.map((p, i) => `<figure class="gr-thumb ${p.state}">
+        <img src="${p.url}" alt="${i + 1}번째 사진" /><figcaption>${i + 1}장 · ${h(PHOTO_STATE[p.state])}</figcaption>
+        ${state.busy ? '' : `<button type="button" class="gr-remove" data-remove="${p.id}" aria-label="${i + 1}번째 사진 빼기">×</button>`}
+      </figure>`).join('')}</div>` : ''}
+      <p class="gr-tip">한 장에 한 페이지씩, 위에서 똑바로, 그림자 없이 찍어 주세요. 문제 번호가 잘리지 않게 해 주세요. (최대 ${MAX_PHOTOS}장)<br>답에 네모를 치지 않아도 되지만, 네모를 치면 더 정확하게 읽어요.</p>
+      <button class="primary" type="button" data-action="grade" ${state.busy || !state.photos.length || !state.bookId || (isStaff() && !state.studentId) ? 'disabled' : ''}>${state.busy ? '채점하는 중...' : state.photos.length > 1 ? `사진 ${state.photos.length}장 채점하기` : '채점하기'}</button>
       <div class="gr-status ${state.statusError ? 'error' : ''}" role="status">${h(state.status)}</div>
     </div>
+    ${state.failures.length ? `<div class="gr-failures"><p>빨간 테두리 사진은 채점하지 못했어요. 빼거나 다시 찍은 뒤 다시 채점해 주세요.</p>${[...new Set(state.failures)].map((f) => `<p>· ${h(f)}</p>`).join('')}</div>` : ''}
     ${state.results ? `<div style="margin-top:16px">${state.results.length ? summaryBadges(state.results) + tiles(state.results) + `<p class="gr-tip" style="margin-top:10px">X 문제는 다시 풀고 다시 찍으면 새로 채점돼요. "확인 중"은 선생님이 확인해 주실 거예요.</p>` : '<p class="muted">답을 쓴 문제를 찾지 못했어요. 답을 쓴 페이지인지 확인해 주세요.</p>'}</div>` : ''}
   </section>`;
 }
@@ -263,33 +272,53 @@ async function invoke(body) {
   return data;
 }
 
+// 사진 한 장 채점: 올리기 → 문제 번호 찾기 → 문제별로 잘라 판독
+async function gradeOne(photo, say) {
+  const img = await loadImage(photo.file);
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const page = await toBlob(toCanvas(img, 0, 0, W, H, 2000));
+  const path = `${state.me.id}/grading/${crypto.randomUUID()}.jpg`;
+  say('사진 올리는 중');
+  const up = await db.storage.from('academy-private').upload(path, page, { contentType: 'image/jpeg' });
+  if (up.error) throw new Error('사진을 올리지 못했어요: ' + up.error.message);
+  say('문제 번호 찾는 중');
+  const located = await invoke({ action: 'locate', bookId: state.bookId, photoPath: path, studentId: isStaff() ? state.studentId : undefined });
+  say(`${located.problems.length}문제의 답을 읽는 중 (30초~1분)`);
+  const crops = located.problems.map((p) => {
+    const r = cropRect(p.box, W, H);
+    return { no: p.no, data: toCanvas(img, r.x, r.y, r.w, r.h, 1100).toDataURL('image/jpeg', 0.86).split(',')[1] };
+  });
+  const graded = await invoke({ action: 'grade', submissionId: located.submissionId, crops });
+  return graded.results;
+}
+
+// 모아 둔 사진을 한 장씩 차례로 채점. 한 장이 실패해도 나머지는 계속합니다.
 async function grade() {
   if (state.busy) return;
-  state.busy = true; state.results = null; state.statusError = false;
-  const say = (t) => { state.status = t; render(); };
+  state.busy = true; state.results = null; state.failures = []; state.statusError = false;
+  const merged = new Map();
+  const queue = state.photos.filter((p) => p.state !== 'done');
   try {
-    say('사진 준비 중...');
-    const img = await loadImage(state.file);
-    const W = img.naturalWidth, H = img.naturalHeight;
-    const page = await toBlob(toCanvas(img, 0, 0, W, H, 2000));
-    const path = `${state.me.id}/grading/${crypto.randomUUID()}.jpg`;
-    say('사진 올리는 중...');
-    const up = await db.storage.from('academy-private').upload(path, page, { contentType: 'image/jpeg' });
-    if (up.error) throw new Error('사진을 올리지 못했어요: ' + up.error.message);
-    say('문제 번호 찾는 중...');
-    const located = await invoke({ action: 'locate', bookId: state.bookId, photoPath: path, studentId: isStaff() ? state.studentId : undefined });
-    say(`${located.problems.length}문제의 답을 읽는 중... (30초~1분 정도 걸려요)`);
-    const crops = [];
-    for (const p of located.problems) {
-      const r = cropRect(p.box, W, H);
-      const c = toCanvas(img, r.x, r.y, r.w, r.h, 1100);
-      crops.push({ no: p.no, data: c.toDataURL('image/jpeg', 0.86).split(',')[1] });
+    for (let i = 0; i < queue.length; i++) {
+      const photo = queue[i], label = `${state.photos.indexOf(photo) + 1}장`;
+      photo.state = 'working';
+      const say = (t) => { state.status = `${queue.length > 1 ? `${i + 1}/${queue.length} · ` : ''}${label}: ${t}...`; render(); };
+      try {
+        for (const r of await gradeOne(photo, say)) merged.set(r.no, r);
+        photo.state = 'done';
+      } catch (e) {
+        photo.state = 'failed';
+        state.failures.push(e.message || String(e));
+      }
+      state.results = [...merged.values()].sort((x, y) => x.no - y.no);
+      render();
     }
-    const graded = await invoke({ action: 'grade', submissionId: located.submissionId, crops });
-    state.results = graded.results.sort((x, y) => x.no - y.no);
-    state.status = '채점 완료!';
-  } catch (e) {
-    state.status = e.message || String(e); state.statusError = true;
+    const ok = queue.filter((p) => p.state === 'done').length;
+    state.status = state.failures.length ? `${ok}장 채점 완료, ${state.failures.length}장은 다시 찍어 주세요.` : '채점 완료!';
+    state.statusError = state.failures.length > 0 && ok === 0;
+    // 다 끝난 사진은 목록에서 빼고, 실패한 사진만 남겨 다시 시도할 수 있게 합니다.
+    for (const p of state.photos.filter((x) => x.state === 'done')) URL.revokeObjectURL(p.url);
+    state.photos = state.photos.filter((p) => p.state !== 'done');
   } finally {
     state.busy = false; render();
   }
@@ -316,6 +345,12 @@ app.addEventListener('click', async (ev) => {
   if (t.dataset.action === 'close-backdrop' && ev.target !== t) return;
   try {
     if (t.dataset.tab) return switchTab(t.dataset.tab);
+    if (t.dataset.remove) {
+      const p = state.photos.find((x) => x.id === t.dataset.remove);
+      if (p) URL.revokeObjectURL(p.url);
+      state.photos = state.photos.filter((x) => x.id !== t.dataset.remove);
+      return render();
+    }
     if (t.dataset.action === 'grade') return grade();
     if (t.dataset.action === 'close' || t.dataset.action === 'close-backdrop') { state.detail = null; return render(); }
     if (t.dataset.detail) {
@@ -357,9 +392,12 @@ app.addEventListener('click', async (ev) => {
 app.addEventListener('change', async (ev) => {
   const t = ev.target;
   try {
-    if (t.dataset.photo !== undefined && t.files?.[0]) {
-      if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
-      state.file = t.files[0]; state.previewUrl = URL.createObjectURL(state.file); state.results = null; state.status = ''; state.statusError = false;
+    if (t.dataset.photo !== undefined && t.files?.length) {
+      const room = MAX_PHOTOS - state.photos.length;
+      const picked = [...t.files].filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name));
+      for (const file of picked.slice(0, Math.max(0, room))) state.photos.push({ id: crypto.randomUUID(), file, url: URL.createObjectURL(file), state: 'ready' });
+      state.results = null; state.failures = []; state.statusError = false;
+      state.status = picked.length > room ? `사진은 한 번에 ${MAX_PHOTOS}장까지 채점할 수 있어요.` : '';
       return render();
     }
     if (t.dataset.keyfile !== undefined && t.files?.[0]) {

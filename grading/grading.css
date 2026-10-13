@@ -49,3 +49,17 @@
 .gr-book label.check { display: flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 600; }
 .gr-book label.check input { width: auto; }
 @media (max-width: 640px) { .gr-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+.gr-photo-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.gr-photo-btn .small { display: block; font-weight: 500; color: var(--muted); margin-top: 2px; }
+.gr-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.gr-thumb { position: relative; margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--white); }
+.gr-thumb img { display: block; width: 100%; height: 120px; object-fit: cover; background: var(--soft); }
+.gr-thumb figcaption { font-size: 12px; font-weight: 700; padding: 4px 6px; color: var(--muted); }
+.gr-thumb.working { border-color: var(--blue); } .gr-thumb.working figcaption { color: var(--blue); }
+.gr-thumb.done figcaption { color: var(--good); }
+.gr-thumb.failed { border-color: #f0b8b8; } .gr-thumb.failed figcaption { color: var(--bad); }
+.gr-remove { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: rgba(255,255,255,.92); font-size: 18px; line-height: 1; }
+.gr-failures { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #fff6f6; color: var(--bad); font-size: 13px; font-weight: 600; }
+.gr-failures p { margin: 2px 0; }
+@media (max-width: 420px) { .gr-photo-row { grid-template-columns: 1fr; } }
