@@ -1172,3 +1172,9 @@ body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3
 .ac-day-events p { margin:6px 0; }
 .ac-day-records>h3 { margin:6px 0 10px; }
 .ac-student-calendar .ac-days button.ac-academy-closed:not(.selected) { color:#b85a0a; background:#fff6ea; }
+
+/* 학생·학부모 캘린더: 일요일·국경일·공휴일 빨강, 토요일 파랑 */
+.ac-student-calendar .ac-days button.ac-sunday:not(.selected), .ac-parent-calendar .ac-days button.ac-sunday:not(.selected) { color:#d52d3a; font-weight:700; }
+.ac-student-calendar .ac-days button.ac-saturday:not(.selected), .ac-parent-calendar .ac-days button.ac-saturday:not(.selected) { color:#1d5fbf; }
+.ac-student-calendar .ac-week span:first-child, .ac-parent-calendar .ac-week span:first-child { color:#d52d3a; }
+.ac-student-calendar .ac-week span:last-child, .ac-parent-calendar .ac-week span:last-child { color:#1d5fbf; }
