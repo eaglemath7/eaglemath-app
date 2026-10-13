@@ -1050,20 +1050,38 @@ a.nav-link-button {
 }
 a.nav-link-button:hover { border-color: #b7beca; }
 
-/* 상단 메뉴: 같은 크기의 작은 버튼 목록으로 정리 */
-.topbar-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; min-width:0; }
-.sync-dot { font-size:12px; line-height:1; cursor:default; user-select:none; }
-.topnav { display:flex; flex-wrap:wrap; gap:4px; }
+/* 상단 머리글: 로고·문구 / 이름·연결 상태 / 같은 크기 메뉴 격자 */
+.topbar.tb { display:block; padding:10px clamp(12px,3vw,28px) 10px; }
+.tb-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:40px; }
+.tb-brand { display:flex; align-items:center; gap:12px; min-width:0; }
+.tb-brand img { width:104px; height:38px; object-fit:contain; flex-shrink:0; }
+.tb-slogan { padding-left:12px; border-left:1px solid var(--line); font-size:15px; font-weight:700; letter-spacing:-.01em; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tb-id { display:flex; align-items:center; gap:8px; min-width:0; }
+.tb-id .login-identity { justify-content:flex-end; text-align:right; }
+.tb-id .login-identity strong { font-size:15px; }
+.sync-dot { font-size:11px; line-height:1; cursor:default; user-select:none; }
+.topnav { display:grid; grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:6px; margin-top:10px; }
 .topnav > button, .topnav > a.nav-link-button {
-  display:inline-flex; align-items:center; justify-content:center;
-  min-height:32px; padding:5px 10px; border:1px solid var(--line); border-radius:7px;
-  background:#fff; color:var(--ink); font-size:13px; font-weight:600; white-space:nowrap; text-decoration:none;
+  display:flex; align-items:center; justify-content:center; width:100%;
+  height:34px; padding:0 6px; border:1px solid var(--line); border-radius:8px;
+  background:#fff; color:var(--ink); font-size:13px; font-weight:600; line-height:1; white-space:nowrap; text-decoration:none;
+  transition:background .15s, border-color .15s;
 }
+.topnav > button:hover, .topnav > a.nav-link-button:hover { background:#f5f7fa; border-color:#c5ccd6; }
 .topnav > button[aria-current="page"] { background:var(--red); border-color:var(--red); color:#fff; }
-.topnav > button[aria-pressed="true"] { background:#e7f0ff; border-color:var(--blue); color:var(--blue); }
+.topnav > button[aria-pressed="true"] { background:#eef5ff; border-color:var(--blue); color:var(--blue); }
 @media (max-width:760px) {
-  .topbar, .topbar.ac-student-topbar { flex-wrap:wrap; align-items:center; }
-  .topbar-right { width:100%; justify-content:flex-start; }
-  .topnav { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); width:100%; gap:4px; }
-  .topnav > button, .topnav > a.nav-link-button { min-height:30px; padding:4px 2px; font-size:12px; }
+  .topbar.tb { padding:8px 12px; }
+  .tb-brand img { width:84px; height:32px; }
+  .tb-slogan { font-size:13px; padding-left:10px; }
+  .topnav { grid-template-columns:repeat(4, minmax(0, 1fr)); gap:5px; margin-top:8px; }
+  .topnav > button, .topnav > a.nav-link-button { height:32px; font-size:12px; }
 }
+@media (max-width:520px) {
+  .tb-slogan { display:none; }
+  .tb-id .login-identity small { text-align:right; }
+}
+/* 머리글을 본문과 같은 폭에 맞춤 */
+.tb-head, .topnav { width:min(1124px, 100%); margin-left:auto; margin-right:auto; }
+.topnav { margin-top:10px; }
+@media (max-width:760px) { .topnav { margin-top:8px; } }

@@ -565,32 +565,28 @@ function renderTopbar() {
   const syncIcon = syncStatus.startsWith('Supabase 연결됨') ? '🟢' : syncStatus === '불러오는 중' ? '⏳' : '⚠️';
   const sync = `<span class="sync-dot" title="${escapeHtml(syncStatus)}" aria-label="${escapeHtml(syncStatus)}">${syncIcon}</span>`;
   return `
-    <header class="topbar ${familyPortal ? 'ac-student-topbar' : ''}">
-      <div class="brand">
-        <img src="./logo.png" alt="독수리수학 로고" />
-        <div class="brand-title">
-          <strong>수학이 너희를 자유케하리라</strong>
-          <span>${routeLabel()}</span>
+    <header class="topbar tb ${familyPortal ? 'ac-student-topbar' : ''}">
+      <div class="tb-head">
+        <div class="tb-brand">
+          <img src="./logo.png" alt="독수리수학 로고" />
+          <strong class="tb-slogan">수학이 너희를 자유케하리라</strong>
         </div>
-        ${familyPortal ? identity + sync : ""}
+        <div class="tb-id">${identity}${sync}</div>
       </div>
-      <div class="topbar-right">
-        ${familyPortal ? "" : sync + identity}
-        <nav class="topnav" aria-label="메뉴">
-          ${nav('home','홈')}
-          ${canTeacher() ? nav('academy_class','오늘 수업') : ''}
-          ${canTeacher() && route === 'teacher' ? nav('teacher','강사 수업기록') : ''}
-          ${nav('academy_inbox','과제·질문')}
-          ${canTeacher() ? nav('academy_growth','성장기록') : ''}
-          ${canTeacher() ? nav('academy_comments','더블체크') : ''}
-          ${canAdmin() ? nav('students','학생정보') + nav('admin','관리') : ''}
-          ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
-          ${session.type === 'student' ? nav('student','알림장') : ''}
-          ${session.role !== 'parent' ? `<a class="nav-link-button" href="./grading/${portal ? `?p=${portal}` : ''}">자동채점</a>` : ''}
-          <button class="${wideView ? 'selected' : 'ghost'}" data-action="toggleWideView" aria-pressed="${wideView}">${wideView ? '✓ 넓게' : '넓게 보기'}</button>
-          <button class="ghost" data-action="logout">나가기</button>
-        </nav>
-      </div>
+      <nav class="topnav" aria-label="메뉴">
+        ${nav('home','홈')}
+        ${canTeacher() ? nav('academy_class','오늘 수업') : ''}
+        ${canTeacher() && route === 'teacher' ? nav('teacher','강사 수업기록') : ''}
+        ${nav('academy_inbox','과제·질문')}
+        ${canTeacher() ? nav('academy_growth','성장기록') : ''}
+        ${canTeacher() ? nav('academy_comments','더블체크') : ''}
+        ${canAdmin() ? nav('students','학생정보') + nav('admin','관리') : ''}
+        ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
+        ${session.type === 'student' ? nav('student','알림장') : ''}
+        ${session.role !== 'parent' ? `<a class="nav-link-button" href="./grading/${portal ? `?p=${portal}` : ''}">자동채점</a>` : ''}
+        <button class="${wideView ? 'selected' : 'ghost'}" data-action="toggleWideView" aria-pressed="${wideView}">${wideView ? '✓ 넓게' : '넓게 보기'}</button>
+        <button class="ghost" data-action="logout">나가기</button>
+      </nav>
     </header>
   `;
 }
