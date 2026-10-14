@@ -1047,14 +1047,25 @@ function renderStudentDetail() {
   `;
 }
 
+function studentSearchText(student) {
+  const teacherName = id => toList(state.teachers).find(t => t.id === id)?.name || "";
+  const classes = toList(state.schedules).filter(s => s.studentId === student.id).map(s => {
+    const period = toList(state.periods).find(p => p.name === s.period);
+    return [s.day, `${s.day}${s.period}`, s.period, period?.startTime, period?.startTime?.replace(":", ""), s.lessonType, ...toList(s.teacherIds).map(teacherName)].filter(Boolean).join(" ");
+  }).join(" ");
+  const phones = [student.studentPhone, student.parentPhone, student.parent2Phone].filter(Boolean);
+  return [student.name, student.loginId, student.schoolYear, student.schoolName, student.parentName, student.parent2Name,
+    ...phones, ...phones.map(p => p.replace(/\D/g, "")), classes].filter(Boolean).join(" ").toLowerCase();
+}
+
+// 한 줄 검색: 띄어쓰기로 여러 조건을 함께 (예: "중2 배곧중", "월 4:30", "김선생 초5")
 function adminFilteredStudents() {
-  const query = adminStudentQuery.trim();
+  const tokens = adminStudentQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return toList(state.students).filter(student => {
-    if (adminStudentGrade && student.schoolYear !== adminStudentGrade) return false;
-    if (adminStudentSchool && student.schoolName !== adminStudentSchool) return false;
     if (adminStudentStatus && (student.status || "재원") !== adminStudentStatus) return false;
-    if (query && !(`${student.name} ${student.loginId} ${student.parentPhone} ${student.parent2Phone}`).includes(query)) return false;
-    return true;
+    if (!tokens.length) return true;
+    const text = studentSearchText(student);
+    return tokens.every(token => text.includes(token));
   });
 }
 
@@ -1118,22 +1129,12 @@ function renderQuickStudentForm() {
 }
 
 function renderAdminStudentFilters() {
-  const schools = [...new Set(toList(state.students).map(student => student.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
   return `
-    <div class="grid three">
-      <div class="search-with-button">
-        <input data-action="searchAdminStudent" value="${escapeHtml(adminStudentQuery)}" placeholder="이름·아이디·전화번호로 검색" />
-        <button type="button" data-action="searchAdminStudentGo">검색</button>
-      </div>
-      <select data-action="filterAdminStudentGrade">
-        <option value="">학년 전체</option>
-        ${GRADES.map(g => `<option value="${g}" ${g === adminStudentGrade ? "selected" : ""}>${g}</option>`).join("")}
-      </select>
-      <select data-action="filterAdminStudentSchool">
-        <option value="">학교 전체</option>
-        ${schools.map(sc => `<option value="${escapeHtml(sc)}" ${sc === adminStudentSchool ? "selected" : ""}>${escapeHtml(sc)}</option>`).join("")}
-      </select>
+    <div class="search-with-button student-one-search">
+      <input data-action="searchAdminStudent" value="${escapeHtml(adminStudentQuery)}" placeholder="이름·학년·학교·반(요일·시간·선생님)·전화번호" />
+      <button type="button" data-action="searchAdminStudentGo">검색</button>
     </div>
+    <div class="muted small">띄어쓰기로 여러 조건 함께 검색: 예) 중2 배곧중 · 월 4:30 · 초5 김선생</div>
   `;
 }
 
