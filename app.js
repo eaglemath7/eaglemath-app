@@ -559,6 +559,7 @@ function renderLogin() {
           <p id="loginError" class="error small"></p>
           <button class="primary" type="submit">로그인</button>
         </form>
+        <p class="login-guide-link"><a href="./guide/#${portal === "parent" ? "parent" : portal === "teacher" ? "teacher" : "student"}">📖 처음이세요? 사용 안내 보기</a></p>
       </section>
     </main>
   `;
