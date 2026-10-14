@@ -210,6 +210,8 @@ async function loadAllData() {
       id: row.id, name: profile.name || "", birthday4: row.birthday4 || "", schoolYear: row.school_year || "",
       schoolName: row.school_name || "", studentPhone: row.student_phone || "", parentPhone: row.parent_phone || "",
       parentName: row.parent_name || "", parentRelation: row.parent_relation || "",
+      parent2Phone: row.parent2_phone || "", parent2Name: row.parent2_name || "", parent2Relation: row.parent2_relation || "",
+      enrolledOn: row.enrolled_on || "",
       loginId: profile.login_id || "", studyPlans: toList(row.study_plans),
       familyId: row.family_id || "",
       status: row.status || "재원",
@@ -735,7 +737,7 @@ function renderCalendarDay() {
   if (dayPeriods.length && !dayPeriods.includes(modal.calendarPeriod)) modal.calendarPeriod = dayPeriods[0];
   const periodSchedules = dayPeriods.length ? schedules.filter(s => s.period === modal.calendarPeriod) : schedules;
   const scheduledIds = [...new Set(periodSchedules.map(item => item.studentId))];
-  const searchedStudents = canTeacher() && query ? toList(state.students).filter(student => student.active && (`${student.name} ${student.loginId} ${student.parentPhone} ${student.studentPhone}`).includes(query)).slice(0, 10) : [];
+  const searchedStudents = canTeacher() && query ? toList(state.students).filter(student => student.active && (`${student.name} ${student.loginId} ${student.parentPhone} ${student.parent2Phone} ${student.studentPhone}`).includes(query)).slice(0, 10) : [];
   return `<div class="stack"><div class="between"><h2 class="section-title">${formatKoreanDate(date)}</h2><button data-action="closeModal">닫기</button></div>
     ${holiday ? `<div class="event-card holiday-card"><strong>${escapeHtml(holiday)}</strong><span>대한민국 공휴일</span></div>` : ""}
     ${events.map(item => `<div class="event-card"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.type)}${item.note ? ` · ${escapeHtml(item.note)}` : ""}</span></div>`).join("")}
@@ -1024,20 +1026,20 @@ function renderStudentDetail() {
       <section class="panel stack">
         <strong>기본 정보</strong>
         <div class="grid two">
-          <div><span class="muted small">로그인 아이디</span><div>${escapeHtml(student.loginId || "-")}</div></div>
-          <div><span class="muted small">생일 4자리</span><div>${escapeHtml(student.birthday4 || "-")}</div></div>
-          <div><span class="muted small">학생 휴대폰</span><div>${escapeHtml(student.studentPhone || "-")}</div></div>
-          <div><span class="muted small">학부모 휴대폰</span><div>${escapeHtml(student.parentPhone || "-")}</div></div>
-          <div><span class="muted small">학부모 성함</span><div>${escapeHtml(student.parentName || "-")}</div></div>
-          <div><span class="muted small">학부모 관계</span><div>${escapeHtml(student.parentRelation || "-")}</div></div>
-          <div><span class="muted small">형제/자매 연결</span><div>${student.familyId ? escapeHtml(toList(state.students).filter(s => s.familyId === student.familyId && s.id !== student.id).map(s => s.name).join(", ") || "-") : "-"}</div></div>
+          <div class="pc-only"><span class="muted small">로그인 아이디</span><div>${escapeHtml(student.loginId || "-")}</div></div>
+          <div class="pc-only"><span class="muted small">생일 4자리</span><div>${escapeHtml(student.birthday4 || "-")}</div></div>
+          <div><span class="muted small">학생 휴대폰</span><div>${student.studentPhone ? `<a href="tel:${escapeHtml(student.studentPhone.replace(/\D/g, ""))}">${escapeHtml(student.studentPhone)}</a>` : "-"}</div></div>
+          <div><span class="muted small">연락처</span><div class="contact-lines">${contactLine(student.parentRelation, student.parentName, student.parentPhone)}${contactLine(student.parent2Relation, student.parent2Name, student.parent2Phone)}${student.parentPhone || student.parent2Phone ? "" : "-"}</div></div>
+          <div class="pc-only"><span class="muted small">최초 등록일</span><div>${escapeHtml(student.enrolledOn || "-")}</div></div>
+          <div class="pc-only"><span class="muted small">형제/자매 연결</span><div>${student.familyId ? escapeHtml(toList(state.students).filter(s => s.familyId === student.familyId && s.id !== student.id).map(s => s.name).join(", ") || "-") : "-"}</div></div>
         </div>
       </section>
       <section class="panel stack">
         <strong>시간표</strong>
         ${schedules.length ? schedules.map(item => `<div class="schedule-line"><span>${escapeHtml(item.day)} · ${periodTimeInline(item.period)}</span><span class="badge">${escapeHtml(item.lessonType)}</span><span class="muted small">${toList(item.teacherIds).map(teacherName).join(", ") || "담당 미배정"}</span></div>`).join("") : `<div class="empty">배정된 시간표가 없습니다.</div>`}
       </section>
-      <section class="panel stack">
+      <p class="muted small mobile-only">로그인 아이디·생일·등록일·교재 진도는 PC 버전에서 볼 수 있어요.</p>
+      <section class="panel stack pc-only">
         <strong>교재 및 현재 진도</strong>
         ${progress || `<div class="empty">등록된 교재가 없습니다.</div>`}
       </section>
@@ -1051,7 +1053,7 @@ function adminFilteredStudents() {
     if (adminStudentGrade && student.schoolYear !== adminStudentGrade) return false;
     if (adminStudentSchool && student.schoolName !== adminStudentSchool) return false;
     if (adminStudentStatus && (student.status || "재원") !== adminStudentStatus) return false;
-    if (query && !(`${student.name} ${student.loginId} ${student.parentPhone}`).includes(query)) return false;
+    if (query && !(`${student.name} ${student.loginId} ${student.parentPhone} ${student.parent2Phone}`).includes(query)) return false;
     return true;
   });
 }
@@ -1155,14 +1157,16 @@ function renderStudentDirectory() {
           <div class="muted small">${adminFilteredStudents().length}명 표시 중 (전체 ${toList(state.students).length}명)</div>
           <div class="table-wrap">
             <table class="student-directory-table">
-              <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
+              <thead><tr><th>이름</th><th>학년</th><th class="pc-only">아이디</th><th>연락처</th><th class="pc-only">학생 휴대폰</th><th class="pc-only">등록일</th><th class="pc-only"></th></tr></thead>
               <tbody>${adminFilteredStudents().map(s => `
                 <tr>
                   <td><button type="button" class="link-button" data-action="viewStudent" data-id="${s.id}">${escapeHtml(s.name)}</button> ${s.status === "퇴원" ? `<span class="badge bad">퇴원</span>` : s.status === "휴원" ? `<span class="badge warn">휴원</span>` : ""}</td>
                   <td>${escapeHtml(s.schoolYear || "-")}</td>
-                  <td>${escapeHtml(s.loginId)}</td>
-                  <td>${escapeHtml(s.parentPhone || "-")}</td>
-                  <td class="student-directory-controls"><div class="student-directory-actions">
+                  <td class="pc-only">${escapeHtml(s.loginId)}</td>
+                  <td>${contactLine(s.parentRelation, "", s.parentPhone)}${contactLine(s.parent2Relation, "", s.parent2Phone)}${s.parentPhone || s.parent2Phone ? "" : "-"}</td>
+                  <td class="pc-only">${escapeHtml(s.studentPhone || "-")}</td>
+                  <td class="pc-only">${escapeHtml(s.enrolledOn || "-")}</td>
+                  <td class="student-directory-controls pc-only"><div class="student-directory-actions">
                     <button data-action="editStudent" data-id="${s.id}">수정</button>
                     <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
                     <select aria-label="${escapeHtml(s.name)} 재원 상태" data-action="changeStudentStatus" data-id="${s.id}">
@@ -1680,7 +1684,7 @@ function renderIndividualRecordFields(studentIds, record = {}, existingByStudent
 function renderQuickRecordModal() {
   const query = modal.query || "";
   const lessonDate = modal.lessonDate || todayIso();
-  const found = toList(state.students).filter(s => s.active && (`${s.name} ${s.loginId} ${s.parentPhone} ${s.studentPhone}`).includes(query)).slice(0, 12);
+  const found = toList(state.students).filter(s => s.active && (`${s.name} ${s.loginId} ${s.parentPhone} ${s.parent2Phone} ${s.studentPhone}`).includes(query)).slice(0, 12);
   return `
     <div class="stack">
       <div class="between">
@@ -1797,15 +1801,11 @@ function renderStudentForm(student = null) {
       <label>학교명 <input name="schoolName" placeholder="예: 독수리초등학교" value="${escapeHtml(student?.schoolName || "")}" /></label>
       <div class="grid two">
         <label>학생 휴대폰 <span class="muted small">선택사항</span><input name="studentPhone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.studentPhone || "")}" /></label>
-        <label>학부모 휴대폰 <span class="muted small">선택사항</span><input name="parentPhone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.parentPhone || "")}" /></label>
+        <label>최초 등록일 <span class="muted small">선택사항</span><input name="enrolledOn" type="date" value="${escapeHtml(student?.enrolledOn || "")}" /></label>
       </div>
-      <div class="grid two">
-        <label>학부모 관계 <select name="parentRelation">
-          <option value="">선택 안 함</option>
-          ${["모", "부", "기타"].map(v => `<option ${student?.parentRelation === v ? "selected" : ""}>${v}</option>`).join("")}
-        </select></label>
-        <label>학부모 성함 <span class="muted small">선택사항</span><input name="parentName" value="${escapeHtml(student?.parentName || "")}" /></label>
-      </div>
+      ${contactFields(1, student?.parentRelation, student?.parentName, student?.parentPhone)}
+      ${contactFields(2, student?.parent2Relation, student?.parent2Name, student?.parent2Phone)}
+      <datalist id="contactRelations"><option value="모"></option><option value="부"></option><option value="할머니"></option><option value="할아버지"></option><option value="누나"></option><option value="형"></option><option value="언니"></option><option value="기타"></option></datalist>
       ${siblingPickerHtml(student?.id || "")}
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름으로 생성 · 지정 동명이인은 학년 숫자 추가" /></label>
       <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" minlength="4" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
@@ -3181,7 +3181,12 @@ function validateStudentPhones(data) {
     showMessage("학생 휴대폰은 010-0000-0000 형식으로 입력해주세요.");
     return null;
   }
-  return { parentPhone: parentPhoneRaw, studentPhone };
+  const parent2Phone = data.parent2Phone?.trim() ? formatPhone(data.parent2Phone) : "";
+  if (parent2Phone && !isValidPhone(parent2Phone)) {
+    showMessage("연락처 2 휴대폰은 010-0000-0000 형식으로 입력해주세요.");
+    return null;
+  }
+  return { parentPhone: parentPhoneRaw, studentPhone, parent2Phone };
 }
 
 // 이름(+학년)만으로 바로 학생 계정을 만듭니다. 시간표/교재/형제 연결/연락처는
@@ -3228,13 +3233,35 @@ async function addStudent(form, data) {
     password: data.password?.trim() || "", birthday4: data.birthday4?.trim() || "",
     schoolYear: data.schoolYear?.trim() || "", schoolName: data.schoolName?.trim() || "",
     studentPhone: phones.studentPhone, parentPhone: phones.parentPhone,
-    parentName: data.parentName?.trim() || "", parentRelation: data.parentRelation || "",
+    parentName: data.parentName?.trim() || "", parentRelation: data.parentRelation?.trim() || "",
     studyPlans
   });
   if (error) { showMessage(`학생 등록 실패: ${error}`); return false; }
+  // 연락처 2와 최초 등록일은 등록 후 바로 저장
+  if (phones.parent2Phone || data.parent2Name?.trim() || data.parent2Relation?.trim() || data.enrolledOn) {
+    await supabase.from("students").update({
+      parent2_phone: phones.parent2Phone || null, parent2_name: data.parent2Name?.trim() || null,
+      parent2_relation: data.parent2Relation?.trim() || null, enrolled_on: data.enrolledOn || null
+    }).eq("id", created.id);
+  }
   await syncStudentSchedules(created.id, scheduleData);
   await applyFamilySiblingLinks(created.id, readSiblingIds(form));
   await loadAllData();
+}
+
+// 연락처 입력 칸 (관계는 모/부 또는 할머니·누나 등 직접 입력)
+function contactFields(n, relation, name, phone) {
+  const k = n === 1 ? "parent" : "parent2";
+  return `<fieldset class="contact-fields"><legend>연락처 ${n}</legend><div class="grid three">
+    <label>관계<input name="${k}Relation" list="contactRelations" maxlength="10" placeholder="모 / 부 / 할머니" value="${escapeHtml(relation || "")}" /></label>
+    <label>성함<input name="${k}Name" maxlength="30" value="${escapeHtml(name || "")}" /></label>
+    <label>휴대폰<input name="${k}Phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(phone || "")}" /></label>
+  </div></fieldset>`;
+}
+function contactLine(relation, name, phone) {
+  if (!phone && !name) return "";
+  const who = [relation, name].filter(Boolean).join(" ");
+  return `<div class="contact-line"><span>${escapeHtml(who || "연락처")}</span>${phone ? `<a href="tel:${escapeHtml(phone.replace(/\D/g, ""))}">${escapeHtml(phone)}</a>` : ""}</div>`;
 }
 
 async function updateStudent(form, data) {
@@ -3261,7 +3288,9 @@ async function updateStudent(form, data) {
     birthday4: data.birthday4?.trim() || null, school_year: data.schoolYear?.trim() || "", study_plans: studyPlans,
     school_name: data.schoolName?.trim() || null, student_phone: phones.studentPhone || null,
     parent_phone: phones.parentPhone || null, parent_name: data.parentName?.trim() || null,
-    parent_relation: data.parentRelation || null
+    parent_relation: data.parentRelation?.trim() || null,
+    parent2_phone: phones.parent2Phone || null, parent2_name: data.parent2Name?.trim() || null,
+    parent2_relation: data.parent2Relation?.trim() || null, enrolled_on: data.enrolledOn || null
   }).eq("id", student.id);
   if (studentError) { showMessage(`학생 정보 저장 실패: ${studentError.message}`); return false; }
   if (data.password?.trim()) {

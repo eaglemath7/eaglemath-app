@@ -1178,3 +1178,15 @@ body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3
 .ac-student-calendar .ac-days button.ac-saturday:not(.selected), .ac-parent-calendar .ac-days button.ac-saturday:not(.selected) { color:#1d5fbf; }
 .ac-student-calendar .ac-week span:first-child, .ac-parent-calendar .ac-week span:first-child { color:#d52d3a; }
 .ac-student-calendar .ac-week span:last-child, .ac-parent-calendar .ac-week span:last-child { color:#1d5fbf; }
+
+/* 학생 연락처 */
+.contact-fields { border:1px solid var(--line); border-radius:8px; padding:8px 12px 12px; margin:0; }
+.contact-fields legend { padding:0 6px; font-size:13px; font-weight:700; color:var(--muted); }
+.contact-line { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
+.contact-line span { color:var(--muted); font-size:13px; min-width:52px; }
+.contact-line a { color:var(--blue); font-weight:600; text-decoration:none; }
+/* 휴대폰 화면(모바일 보기)에서는 간단 정보만 */
+body.family-mobile .pc-only { display:none !important; }
+body.family-mobile .grid.three { grid-template-columns:1fr; }
+.mobile-only { display:none; }
+body.family-mobile .mobile-only { display:block; }
