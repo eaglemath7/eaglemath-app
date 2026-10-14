@@ -89,7 +89,7 @@ footer{color:var(--muted);font-size:14px;text-align:center;margin-top:40px}
 <main class="wrap">
 
 <!-- ===================== 학생 ===================== -->
-<section class="role on" id="student">
+<section class="role on" id="sec-student">
   <h2>① 내 휴대폰에 알림장 바로가기 만들기</h2>
   <div class="card">
     <p class="lead">아래 <strong>학생용 주소</strong>를 눌러 열어요.</p>
@@ -152,7 +152,7 @@ footer{color:var(--muted);font-size:14px;text-align:center;margin-top:40px}
 </section>
 
 <!-- ===================== 학부모 ===================== -->
-<section class="role" id="parent">
+<section class="role" id="sec-parent">
   <h2>① 휴대폰에 알림장 바로가기 만들기</h2>
   <div class="card">
     <p class="lead">아래 <strong>학부모용 주소</strong>를 눌러 열어 주세요.</p>
@@ -201,7 +201,7 @@ footer{color:var(--muted);font-size:14px;text-align:center;margin-top:40px}
 </section>
 
 <!-- ===================== 선생님 ===================== -->
-<section class="role" id="teacher">
+<section class="role" id="sec-teacher">
   <h2>① 접속과 로그인</h2>
   <div class="card">
     <a class="linkbox" href="../teacher/">eaglemath7.github.io/eaglemath-app/teacher/</a>
@@ -299,9 +299,9 @@ footer{color:var(--muted);font-size:14px;text-align:center;margin-top:40px}
   document.querySelectorAll('[data-install]').forEach(function(el){el.appendChild(tpl.content.cloneNode(true));});
   var tabs=document.querySelectorAll('nav.roles button');
   function show(role,scroll){
-    if(!document.getElementById(role))role='student';
+    if(!document.getElementById('sec-'+role))role='student';
     tabs.forEach(function(b){b.setAttribute('aria-selected',b.dataset.role===role?'true':'false');});
-    document.querySelectorAll('section.role').forEach(function(s){s.classList.toggle('on',s.id===role);});
+    document.querySelectorAll('section.role').forEach(function(s){s.classList.toggle('on',s.id==='sec-'+role);});
     if(scroll)window.scrollTo({top:0});
   }
   tabs.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.role,true);try{history.replaceState(null,'','#'+b.dataset.role);}catch(e){}});});
