@@ -450,7 +450,41 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     if(!data?.text)throw new Error(data?.error||'AI 응답이 비어 있습니다. 다시 시도해주세요.');return data.text;
   }
   async function rank(){if(parent()){rankings=[];return;}const {data,error}=await db.rpc('academy_ranking',{p_months:Number(rankMonths),p_start:rankStart||null,p_end:rankEnd||null});if(error)throw error;rankings=data||[];}
-  function familiesPanel(parentId='',unlink=false){const linked=familyLinks.filter(l=>l.parent_id===parentId).map(l=>l.student_id);return form('가족 연결 · 앱 초대','family',`<p>학부모 계정은 학생 계정과 별도로 관리합니다. 연결된 자녀 중 누구의 아이디로든 학부모 주소에서 로그인할 수 있습니다.</p>`+`<input type="hidden" name="parentId" value="${parentId}"/>`+(parentId?`<p>${h(parentAccounts.find(p=>p.id===parentId)?.name||'학부모')} · 자녀 연결 수정</p>`:input('학부모 이름','name')+input('학부모 계정 아이디','loginId')+input('초기 비밀번호 (4자 이상)','password','','password'))+`<label>연결할 자녀<select multiple name="children" size="8">${allStudents().map(s=>`<option value="${s.id}" ${!unlink&&linked.includes(s.id)?'selected':''}>${h(s.name)}</option>`).join('')}</select></label><p class="muted small">여러 자녀는 Command/Ctrl을 누르고 선택하세요.</p><div class="toolbar">${btn('강사 초대문 복사','invite','teacher')}${btn('학생 초대문 복사','invite','student')}${btn('학부모 초대문 복사','invite','parent')}</div>${parentAccounts.map(p=>`<div class="ac-line"><span>${h(p.name)} · ${familyLinks.filter(l=>l.parent_id===p.id).map(l=>h(name(l.student_id))).join(', ')}</span>${btn('연결 수정','family-edit',p.id)}</div>`).join('')}`);}
+  // 연락처 1 번호가 같은 학생을 한 가족으로 묶어 학부모 계정을 일괄 생성·연결합니다.
+  function autoFamilyPlan(){
+    const linked=new Set(familyLinks.map(l=>l.student_id)),usedLogins=new Set(parentAccounts.map(p=>p.login_id)),groups=new Map(),skipped=[];
+    for(const s of allStudents()){
+      if(linked.has(s.id))continue;
+      const digits=String(s.parentPhone||'').replace(/\D/g,'');
+      if(!/^010\d{8}$/.test(digits)){skipped.push(`${s.name}: 연락처 1 번호 없음/형식 확인`);continue;}
+      if(!groups.has(digits))groups.set(digits,[]);groups.get(digits).push(s);
+    }
+    const plan=[];
+    for(const [digits,kids] of groups){
+      const login=kids.map(k=>k.loginId).find(id=>id&&!usedLogins.has('parent:'+id));
+      if(!login){skipped.push(`${kids.map(k=>k.name).join('·')}: 사용할 아이디 없음`);continue;}
+      usedLogins.add('parent:'+login);
+      plan.push({name:kids.map(k=>k.name).join('·')+' 어머님',loginId:login,password:digits.slice(3),studentIds:kids.map(k=>k.id)});
+    }
+    return {plan,skipped};
+  }
+  async function autoCreateFamilies(button){
+    const {plan,skipped}=autoFamilyPlan();
+    if(!plan.length){alert(['새로 만들 학부모 계정이 없습니다.',...skipped].join('\n'));return;}
+    const kids=plan.reduce((n,p)=>n+p.studentIds.length,0);
+    if(!confirm(`학부모 계정 ${plan.length}개를 만들고 학생 ${kids}명을 연결합니다.\n비밀번호는 어머님 번호에서 010을 뺀 8자리입니다.\n진행할까요?`))return;
+    const box=button.closest('.ac-auto-family');button.disabled=true;
+    const status=document.createElement('p');status.className='muted small';box.append(status);
+    let ok=0;const failed=[];
+    for(const [i,p] of plan.entries()){
+      status.textContent=`만드는 중… ${i+1} / ${plan.length}`;
+      try{const {data,error}=await db.functions.invoke('academy-family',{body:p});if(error||data?.error)throw new Error(data?.error||error.message);ok++;}
+      catch(err){failed.push(`${p.name}: ${err.message||err}`);}
+    }
+    await load();refresh();
+    alert([`학부모 계정 ${ok}개를 만들고 연결했습니다.`,failed.length?`실패 ${failed.length}건:`:'',...failed,skipped.length?`건너뜀 ${skipped.length}건:`:'',...skipped].filter(Boolean).join('\n'));
+  }
+  function familiesPanel(parentId='',unlink=false){const linked=familyLinks.filter(l=>l.parent_id===parentId).map(l=>l.student_id);return form('가족 연결 · 앱 초대','family',`<p>학부모 계정은 학생 계정과 별도로 관리합니다. 연결된 자녀 중 누구의 아이디로든 학부모 주소에서 로그인할 수 있습니다.</p>`+(parentId?'':`<div class="ac-auto-family"><strong>학부모 계정 자동 만들기</strong><p class="muted small">학생 정보의 <b>연락처 1(어머님) 번호</b>가 같은 학생끼리 한 가족으로 묶어 학부모 계정을 한 번에 만들고 연결합니다. 아이디는 아이 아이디(형제 누구 것이든), 비밀번호는 <b>어머님 번호에서 010을 뺀 8자리</b>입니다. 이미 연결된 학생은 건너뜁니다.</p>${btn('전체 자동 만들기·연결','families-auto','','primary')}</div>`)+`<input type="hidden" name="parentId" value="${parentId}"/>`+(parentId?`<p>${h(parentAccounts.find(p=>p.id===parentId)?.name||'학부모')} · 자녀 연결 수정</p>`:input('학부모 이름','name')+input('학부모 계정 아이디','loginId')+input('초기 비밀번호 (4자 이상)','password','','password'))+`<label>연결할 자녀<select multiple name="children" size="8">${allStudents().map(s=>`<option value="${s.id}" ${!unlink&&linked.includes(s.id)?'selected':''}>${h(s.name)}</option>`).join('')}</select></label><p class="muted small">여러 자녀는 Command/Ctrl을 누르고 선택하세요.</p><div class="toolbar">${btn('강사 초대문 복사','invite','teacher')}${btn('학생 초대문 복사','invite','student')}${btn('학부모 초대문 복사','invite','parent')}</div>${parentAccounts.map(p=>`<div class="ac-line"><span>${h(p.name)} · ${familyLinks.filter(l=>l.parent_id===p.id).map(l=>h(name(l.student_id))).join(', ')}</span>${btn('연결 수정','family-edit',p.id)}</div>`).join('')}`);}
   function eventsPanel(){return form('학교 일정 확인','readonly',rows('school_event').map(i=>`<article class="home-notice"><strong>${h(i.title)}</strong><p>${i.day} · ${h(name(i.student_id))} · ${h(i.body.school)} ${h(i.body.grade)} ${h(i.body.classroom)}반</p><p>${h(i.body.text)}</p>${filesHtml(i.body.files)} ${badge(i.status)}${admin()&&i.status!=='approved'?btn('확정 · 달력 반영','approve-event',i.id):''}</article>`).join('')||empty('제출된 학교 일정이 없습니다.'),'',btn('닫기','close'));}
   async function click(e){
     const b=e.target.closest('[data-ac]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();if(busy)return;
@@ -518,6 +552,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       if(a==='assessment'||a==='assessment-edit')panel=assessmentForm(i);
       if(a==='families')panel=familiesPanel();
       if(a==='family-edit')panel=familiesPanel(id);
+      if(a==='families-auto'){if(!admin())return;await autoCreateFamilies(b);return;}
       if(a==='family-unlink')panel=familiesPanel(id,true);
       if(a==='makeup-new'||a==='makeup-edit'){
         if(!admin())return;batchIds.clear();panel=makeupForm(a==='makeup-edit'?c().state.academicEvents.find(e=>e.id===id&&e.type==='보충'):null);
