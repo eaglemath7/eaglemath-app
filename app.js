@@ -1,6 +1,7 @@
 import { authPassword } from './auth-password.js?v=1';
 import { verifyRecordWriter } from './record-auth.js?v=1';
-import { createAcademy } from "./academy.js?v=41";
+import { createAcademy } from "./academy.js?v=54";
+import { enableMobileShell } from './mobile-shell.js?v=1';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://yftnpfphrkmrrofbvphj.supabase.co";
@@ -55,7 +56,7 @@ const KOREAN_HOLIDAYS = {
   "2026-02-16": "설날 연휴", "2026-02-17": "설날", "2026-02-18": "설날 연휴",
   "2026-03-01": "삼일절", "2026-03-02": "대체공휴일",
   "2026-05-05": "어린이날", "2026-05-24": "부처님오신날", "2026-05-25": "대체공휴일",
-  "2026-06-03": "전국동시지방선거", "2026-06-06": "현충일",
+  "2026-06-03": "전국동시지방선거", "2026-06-06": "현충일", "2026-07-17": "제헌절",
   "2026-08-15": "광복절", "2026-08-17": "대체공휴일",
   "2026-09-24": "추석 연휴", "2026-09-25": "추석", "2026-09-26": "추석 연휴",
   "2026-10-03": "개천절", "2026-10-05": "대체공휴일", "2026-10-09": "한글날",
@@ -163,7 +164,7 @@ async function loadAllData() {
     const [events, kids, staffDirectory] = await Promise.all([supabase.from("academic_events").select("*"), supabase.rpc("academy_children"), supabase.from("staff_directory").select("id,name,role")]);
     state.teachers = (staffDirectory.data || []).map(r => ({id:r.id,name:r.name,role:r.role,active:true}));
     syncStatus = [events,kids,staffDirectory].some(r=>r.error) ? "일부 정보 연결 실패 · 새로고침해주세요" : `Supabase 연결됨 · ${formatKoreanDate(todayIso())}`;
-    state.academicEvents = (events.data || []).map(r => ({id:r.id,title:r.title,startDate:r.start_date,endDate:r.end_date,type:r.type,visibility:r.visibility,note:r.note||""}));
+    state.academicEvents = (events.data || []).map(r => ({id:r.id,title:r.title,startDate:r.start_date,endDate:r.end_date,type:r.type,visibility:r.visibility,note:r.note||"",audience:r.audience||"all",target:r.target||{}}));
     state.students = (kids.data || []).map(r => ({id:r.id,name:r.name,schoolYear:r.school_year,schoolName:r.school_name}));
     return;
   }
@@ -209,6 +210,8 @@ async function loadAllData() {
       id: row.id, name: profile.name || "", birthday4: row.birthday4 || "", schoolYear: row.school_year || "",
       schoolName: row.school_name || "", studentPhone: row.student_phone || "", parentPhone: row.parent_phone || "",
       parentName: row.parent_name || "", parentRelation: row.parent_relation || "",
+      parent2Phone: row.parent2_phone || "", parent2Name: row.parent2_name || "", parent2Relation: row.parent2_relation || "",
+      enrolledOn: row.enrolled_on || "",
       loginId: profile.login_id || "", studyPlans: toList(row.study_plans),
       familyId: row.family_id || "",
       status: row.status || "재원",
@@ -234,7 +237,8 @@ async function loadAllData() {
 
   state.academicEvents = toList(eventsRes.data).map((row) => ({
     id: row.id, title: row.title, startDate: row.start_date, endDate: row.end_date,
-    type: row.type, visibility: row.visibility, note: row.note || ""
+    type: row.type, visibility: row.visibility, note: row.note || "",
+    audience: row.audience || "all", target: row.target || {}
   }));
 
   state.records = toList(recordsRes.data).map((row) => ({
@@ -511,14 +515,19 @@ async function logout() {
 function render() {
   ensureGlobalListeners();
   if (!session) {
+    enableMobileShell(portal === 'student' || portal === 'parent');
     app.innerHTML = renderLogin();
     document.getElementById("loginForm").addEventListener("submit", login);
     return;
   }
+  // 학생·학부모는 휴대폰 전용 화면
+  // 선생님도 기본은 휴대폰 화면, 'PC 버전'을 누르면 넓은 화면(wideView)으로 봅니다.
+  const familyOnly = ['student','parent'].includes(session.role);
+  enableMobileShell(familyOnly || !wideView);
   app.innerHTML = `
     <div class="app-shell">
       ${renderTopbar()}
-      <main class="main ${wideView ? "wide" : ""}">
+      <main class="main ${wideView && !familyOnly ? "wide" : ""}">
         ${renderRoute()}
       </main>
       ${modal ? renderModal() : ""}
@@ -550,6 +559,7 @@ function renderLogin() {
           <p id="loginError" class="error small"></p>
           <button class="primary" type="submit">로그인</button>
         </form>
+        <p class="login-guide-link"><a href="./guide/#${portal === "parent" ? "parent" : portal === "teacher" ? "teacher" : "student"}">📖 처음이세요? 사용 안내 보기</a></p>
       </section>
     </main>
   `;
@@ -561,30 +571,31 @@ function renderTopbar() {
   const childName = session.role === 'parent' ? academy.currentChildName() : '';
   const identity = `<div class="login-identity" aria-label="로그인 정보"><strong>${escapeHtml(currentUserName())}</strong><span>${roleLabel} 로그인</span>${childName ? `<small>보고 있는 자녀 · ${escapeHtml(childName)}</small>` : ''}</div>`;
   const nav = (target, label) => `<button class="${route === target ? 'primary' : 'ghost'}" data-route="${target}" ${route === target ? 'aria-current="page"' : ''}>${label}</button>`;
+  // 연결 상태는 작은 아이콘으로만 표시(마우스를 올리면 자세한 문구)
+  const syncIcon = syncStatus.startsWith('Supabase 연결됨') ? '🟢' : syncStatus === '불러오는 중' ? '⏳' : '⚠️';
+  const sync = `<span class="sync-dot" title="${escapeHtml(syncStatus)}" aria-label="${escapeHtml(syncStatus)}">${syncIcon}</span>`;
   return `
-    <header class="topbar ${familyPortal ? 'ac-student-topbar' : ''}">
-      <div class="brand">
-        <img src="./logo.png" alt="독수리수학 로고" />
-        <div class="brand-title">
-          <strong>수학이 너희를 자유케하리라</strong>
-          <span>${routeLabel()}</span>
+    <header class="topbar tb ${familyPortal ? 'ac-student-topbar' : ''} ${wideView && !familyPortal ? 'tb-wide' : ''}">
+      <div class="tb-head">
+        <div class="tb-brand">
+          <img src="./logo.png" alt="독수리수학 로고" />
+          <strong class="tb-slogan">수학이 너희를 자유케하리라</strong>
         </div>
-        ${familyPortal ? identity : ""}
+        <div class="tb-id">${identity}${sync}${familyPortal ? '' : `<span class="tb-mini-links"><button type="button" class="tb-mini" data-action="toggleWideView" title="${wideView ? '휴대폰 화면으로 보기' : '컴퓨터에서 넓게 보기'}">${wideView ? '모바일' : 'PC 버전'}</button><button type="button" class="tb-mini" data-action="logout">나가기</button></span>`}</div>
       </div>
-      <div class="row">
-        <span class="badge">${escapeHtml(syncStatus)}</span>
-        ${familyPortal ? "" : identity}
+      <nav class="topnav" aria-label="메뉴">
         ${nav('home','홈')}
         ${canTeacher() ? nav('academy_class','오늘 수업') : ''}
         ${canTeacher() && route === 'teacher' ? nav('teacher','강사 수업기록') : ''}
-        ${nav('academy_inbox','과제·질문')}${nav('academy_growth','성장기록')}
-        ${canTeacher() ? nav('academy_comments','더블체크') : ''}
+        ${nav('academy_inbox','과제·질문')}
+        ${canTeacher() ? nav('academy_growth','성장기록') : ''}
+        ${canTeacher() ? nav('academy_comments', `더블체크${academy.doubleCheckCount() ? ` · ${academy.doubleCheckCount()}` : ''}`) : ''}
         ${canAdmin() ? nav('students','학생정보') + nav('admin','관리') : ''}
         ${session.type === 'student' && session.role !== 'parent' ? nav('academy_learning','학습 정리') : ''}
         ${session.type === 'student' ? nav('student','알림장') : ''}
-        <button class="${wideView ? 'selected' : 'ghost'}" data-action="toggleWideView" aria-pressed="${wideView}">${wideView ? '✓ 넓게 보기 켜짐' : '넓게 보기'}</button>
-        <button data-action="logout">나가기</button>
-      </div>
+        <a class="nav-link-button" href="./grading/${portal ? `?p=${portal}` : ''}">자동채점</a>
+        ${familyPortal ? '<button class="ghost" data-action="logout">나가기</button>' : ''}
+      </nav>
     </header>
   `;
 }
@@ -658,7 +669,7 @@ function holidayOnDate(date) {
   if (typeof date !== "string" || date.length < 10) return "";
   const recurring = {
     "01-01": "신정", "03-01": "삼일절", "05-05": "어린이날", "06-06": "현충일",
-    "08-15": "광복절", "10-03": "개천절", "10-09": "한글날", "12-25": "성탄절"
+    "07-17": "제헌절", "08-15": "광복절", "10-03": "개천절", "10-09": "한글날", "12-25": "성탄절"
   };
   return KOREAN_HOLIDAYS[date] || recurring[date.slice(5)] || "";
 }
@@ -727,7 +738,7 @@ function renderCalendarDay() {
   if (dayPeriods.length && !dayPeriods.includes(modal.calendarPeriod)) modal.calendarPeriod = dayPeriods[0];
   const periodSchedules = dayPeriods.length ? schedules.filter(s => s.period === modal.calendarPeriod) : schedules;
   const scheduledIds = [...new Set(periodSchedules.map(item => item.studentId))];
-  const searchedStudents = canTeacher() && query ? toList(state.students).filter(student => student.active && (`${student.name} ${student.loginId} ${student.parentPhone} ${student.studentPhone}`).includes(query)).slice(0, 10) : [];
+  const searchedStudents = canTeacher() && query ? toList(state.students).filter(student => student.active && (`${student.name} ${student.loginId} ${student.parentPhone} ${student.parent2Phone} ${student.studentPhone}`).includes(query)).slice(0, 10) : [];
   return `<div class="stack"><div class="between"><h2 class="section-title">${formatKoreanDate(date)}</h2><button data-action="closeModal">닫기</button></div>
     ${holiday ? `<div class="event-card holiday-card"><strong>${escapeHtml(holiday)}</strong><span>대한민국 공휴일</span></div>` : ""}
     ${events.map(item => `<div class="event-card"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.type)}${item.note ? ` · ${escapeHtml(item.note)}` : ""}</span></div>`).join("")}
@@ -1016,20 +1027,20 @@ function renderStudentDetail() {
       <section class="panel stack">
         <strong>기본 정보</strong>
         <div class="grid two">
-          <div><span class="muted small">로그인 아이디</span><div>${escapeHtml(student.loginId || "-")}</div></div>
-          <div><span class="muted small">생일 4자리</span><div>${escapeHtml(student.birthday4 || "-")}</div></div>
-          <div><span class="muted small">학생 휴대폰</span><div>${escapeHtml(student.studentPhone || "-")}</div></div>
-          <div><span class="muted small">학부모 휴대폰</span><div>${escapeHtml(student.parentPhone || "-")}</div></div>
-          <div><span class="muted small">학부모 성함</span><div>${escapeHtml(student.parentName || "-")}</div></div>
-          <div><span class="muted small">학부모 관계</span><div>${escapeHtml(student.parentRelation || "-")}</div></div>
-          <div><span class="muted small">형제/자매 연결</span><div>${student.familyId ? escapeHtml(toList(state.students).filter(s => s.familyId === student.familyId && s.id !== student.id).map(s => s.name).join(", ") || "-") : "-"}</div></div>
+          <div class="pc-only"><span class="muted small">로그인 아이디</span><div>${escapeHtml(student.loginId || "-")}</div></div>
+          <div class="pc-only"><span class="muted small">생일 4자리</span><div>${escapeHtml(student.birthday4 || "-")}</div></div>
+          <div><span class="muted small">학생 휴대폰</span><div>${student.studentPhone ? `<a href="tel:${escapeHtml(student.studentPhone.replace(/\D/g, ""))}">${escapeHtml(student.studentPhone)}</a>` : "-"}</div></div>
+          <div><span class="muted small">연락처</span><div class="contact-lines">${contactLine(student.parentRelation, student.parentName, student.parentPhone)}${contactLine(student.parent2Relation, student.parent2Name, student.parent2Phone)}${student.parentPhone || student.parent2Phone ? "" : "-"}</div></div>
+          <div class="pc-only"><span class="muted small">최초 등록일</span><div>${escapeHtml(student.enrolledOn || "-")}</div></div>
+          <div class="pc-only"><span class="muted small">형제/자매 연결</span><div>${student.familyId ? escapeHtml(toList(state.students).filter(s => s.familyId === student.familyId && s.id !== student.id).map(s => s.name).join(", ") || "-") : "-"}</div></div>
         </div>
       </section>
       <section class="panel stack">
         <strong>시간표</strong>
         ${schedules.length ? schedules.map(item => `<div class="schedule-line"><span>${escapeHtml(item.day)} · ${periodTimeInline(item.period)}</span><span class="badge">${escapeHtml(item.lessonType)}</span><span class="muted small">${toList(item.teacherIds).map(teacherName).join(", ") || "담당 미배정"}</span></div>`).join("") : `<div class="empty">배정된 시간표가 없습니다.</div>`}
       </section>
-      <section class="panel stack">
+      <p class="muted small mobile-only">로그인 아이디·생일·등록일·교재 진도는 PC 버전에서 볼 수 있어요.</p>
+      <section class="panel stack pc-only">
         <strong>교재 및 현재 진도</strong>
         ${progress || `<div class="empty">등록된 교재가 없습니다.</div>`}
       </section>
@@ -1037,14 +1048,25 @@ function renderStudentDetail() {
   `;
 }
 
+function studentSearchText(student) {
+  const teacherName = id => toList(state.teachers).find(t => t.id === id)?.name || "";
+  const classes = toList(state.schedules).filter(s => s.studentId === student.id).map(s => {
+    const period = toList(state.periods).find(p => p.name === s.period);
+    return [s.day, `${s.day}${s.period}`, s.period, period?.startTime, period?.startTime?.replace(":", ""), s.lessonType, ...toList(s.teacherIds).map(teacherName)].filter(Boolean).join(" ");
+  }).join(" ");
+  const phones = [student.studentPhone, student.parentPhone, student.parent2Phone].filter(Boolean);
+  return [student.name, student.loginId, student.schoolYear, student.schoolName, student.parentName, student.parent2Name,
+    ...phones, ...phones.map(p => p.replace(/\D/g, "")), classes].filter(Boolean).join(" ").toLowerCase();
+}
+
+// 한 줄 검색: 띄어쓰기로 여러 조건을 함께 (예: "중2 배곧중", "월 4:30", "김선생 초5")
 function adminFilteredStudents() {
-  const query = adminStudentQuery.trim();
+  const tokens = adminStudentQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return toList(state.students).filter(student => {
-    if (adminStudentGrade && student.schoolYear !== adminStudentGrade) return false;
-    if (adminStudentSchool && student.schoolName !== adminStudentSchool) return false;
     if (adminStudentStatus && (student.status || "재원") !== adminStudentStatus) return false;
-    if (query && !(`${student.name} ${student.loginId} ${student.parentPhone}`).includes(query)) return false;
-    return true;
+    if (!tokens.length) return true;
+    const text = studentSearchText(student);
+    return tokens.every(token => text.includes(token));
   });
 }
 
@@ -1108,22 +1130,12 @@ function renderQuickStudentForm() {
 }
 
 function renderAdminStudentFilters() {
-  const schools = [...new Set(toList(state.students).map(student => student.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
   return `
-    <div class="grid three">
-      <div class="search-with-button">
-        <input data-action="searchAdminStudent" value="${escapeHtml(adminStudentQuery)}" placeholder="이름·아이디·전화번호로 검색" />
-        <button type="button" data-action="searchAdminStudentGo">검색</button>
-      </div>
-      <select data-action="filterAdminStudentGrade">
-        <option value="">학년 전체</option>
-        ${GRADES.map(g => `<option value="${g}" ${g === adminStudentGrade ? "selected" : ""}>${g}</option>`).join("")}
-      </select>
-      <select data-action="filterAdminStudentSchool">
-        <option value="">학교 전체</option>
-        ${schools.map(sc => `<option value="${escapeHtml(sc)}" ${sc === adminStudentSchool ? "selected" : ""}>${escapeHtml(sc)}</option>`).join("")}
-      </select>
+    <div class="search-with-button student-one-search">
+      <input data-action="searchAdminStudent" value="${escapeHtml(adminStudentQuery)}" placeholder="이름·학년·학교·반(요일·시간·선생님)·전화번호" />
+      <button type="button" data-action="searchAdminStudentGo">검색</button>
     </div>
+    <div class="muted small">띄어쓰기로 여러 조건 함께 검색: 예) 중2 배곧중 · 월 4:30 · 초5 김선생</div>
   `;
 }
 
@@ -1147,14 +1159,16 @@ function renderStudentDirectory() {
           <div class="muted small">${adminFilteredStudents().length}명 표시 중 (전체 ${toList(state.students).length}명)</div>
           <div class="table-wrap">
             <table class="student-directory-table">
-              <thead><tr><th>이름</th><th>학년</th><th>아이디</th><th>학부모전화</th><th></th></tr></thead>
+              <thead><tr><th>이름</th><th>학년</th><th class="pc-only">아이디</th><th>연락처</th><th class="pc-only">학생 휴대폰</th><th class="pc-only">등록일</th><th class="pc-only"></th></tr></thead>
               <tbody>${adminFilteredStudents().map(s => `
                 <tr>
                   <td><button type="button" class="link-button" data-action="viewStudent" data-id="${s.id}">${escapeHtml(s.name)}</button> ${s.status === "퇴원" ? `<span class="badge bad">퇴원</span>` : s.status === "휴원" ? `<span class="badge warn">휴원</span>` : ""}</td>
                   <td>${escapeHtml(s.schoolYear || "-")}</td>
-                  <td>${escapeHtml(s.loginId)}</td>
-                  <td>${escapeHtml(s.parentPhone || "-")}</td>
-                  <td class="student-directory-controls"><div class="student-directory-actions">
+                  <td class="pc-only">${escapeHtml(s.loginId)}</td>
+                  <td>${contactLine(s.parentRelation, "", s.parentPhone)}${contactLine(s.parent2Relation, "", s.parent2Phone)}${s.parentPhone || s.parent2Phone ? "" : "-"}</td>
+                  <td class="pc-only">${escapeHtml(s.studentPhone || "-")}</td>
+                  <td class="pc-only">${escapeHtml(s.enrolledOn || "-")}</td>
+                  <td class="student-directory-controls pc-only"><div class="student-directory-actions">
                     <button data-action="editStudent" data-id="${s.id}">수정</button>
                     <button data-action="resetPassword" data-id="${s.id}">1234 초기화</button>
                     <select aria-label="${escapeHtml(s.name)} 재원 상태" data-action="changeStudentStatus" data-id="${s.id}">
@@ -1672,7 +1686,7 @@ function renderIndividualRecordFields(studentIds, record = {}, existingByStudent
 function renderQuickRecordModal() {
   const query = modal.query || "";
   const lessonDate = modal.lessonDate || todayIso();
-  const found = toList(state.students).filter(s => s.active && (`${s.name} ${s.loginId} ${s.parentPhone} ${s.studentPhone}`).includes(query)).slice(0, 12);
+  const found = toList(state.students).filter(s => s.active && (`${s.name} ${s.loginId} ${s.parentPhone} ${s.parent2Phone} ${s.studentPhone}`).includes(query)).slice(0, 12);
   return `
     <div class="stack">
       <div class="between">
@@ -1789,15 +1803,11 @@ function renderStudentForm(student = null) {
       <label>학교명 <input name="schoolName" placeholder="예: 독수리초등학교" value="${escapeHtml(student?.schoolName || "")}" /></label>
       <div class="grid two">
         <label>학생 휴대폰 <span class="muted small">선택사항</span><input name="studentPhone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.studentPhone || "")}" /></label>
-        <label>학부모 휴대폰 <span class="muted small">선택사항</span><input name="parentPhone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(student?.parentPhone || "")}" /></label>
+        <label>최초 등록일 <span class="muted small">선택사항</span><input name="enrolledOn" type="date" value="${escapeHtml(student?.enrolledOn || "")}" /></label>
       </div>
-      <div class="grid two">
-        <label>학부모 관계 <select name="parentRelation">
-          <option value="">선택 안 함</option>
-          ${["모", "부", "기타"].map(v => `<option ${student?.parentRelation === v ? "selected" : ""}>${v}</option>`).join("")}
-        </select></label>
-        <label>학부모 성함 <span class="muted small">선택사항</span><input name="parentName" value="${escapeHtml(student?.parentName || "")}" /></label>
-      </div>
+      ${contactFields(1, student?.parentRelation, student?.parentName, student?.parentPhone)}
+      ${contactFields(2, student?.parent2Relation, student?.parent2Name, student?.parent2Phone)}
+      <datalist id="contactRelations"><option value="모"></option><option value="부"></option><option value="할머니"></option><option value="할아버지"></option><option value="누나"></option><option value="형"></option><option value="언니"></option><option value="기타"></option></datalist>
       ${siblingPickerHtml(student?.id || "")}
       <label>로그인 아이디 <input name="loginId" value="${escapeHtml(student?.loginId || "")}" placeholder="비워두면 이름으로 생성 · 지정 동명이인은 학년 숫자 추가" /></label>
       <label>비밀번호${student ? " (변경 시에만 입력)" : ""} <input name="password" type="password" minlength="4" autocomplete="new-password" placeholder="${student ? "비워두면 비밀번호를 바꾸지 않음" : "비워두면 1234로 자동 생성"}" /></label>
@@ -1828,7 +1838,10 @@ function renderHomeNotices() {
     .sort((a, b) => b.startDate.localeCompare(a.startDate));
   const active = notices.filter(item => item.startDate <= today && today <= item.endDate);
   const other = notices.filter(item => item.startDate > today || item.endDate < today);
-  const card = item => `<article class="home-notice"><div class="between"><strong>${escapeHtml(item.title)}</strong>${canAdmin() ? `<button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button>` : ""}</div><p class="notice-copy">${escapeHtml(item.note)}</p><div class="muted small">${escapeHtml(item.startDate)} ~ ${escapeHtml(item.endDate)}${item.visibility === "내부" ? " · 직원 전용" : ""}</div></article>`;
+  // 선생님·관리자 화면: 제목만 보이고, 누르면 내용이 펼쳐짐
+  const folded = item => `<details class="home-notice home-notice-fold"><summary><strong>${escapeHtml(item.title)}</strong><span class="muted small">${escapeHtml(item.startDate.slice(5).replace('-', '/'))}~${escapeHtml(item.endDate.slice(5).replace('-', '/'))}</span></summary><div class="home-notice-target">${escapeHtml(noticeTargetLabel(item))}</div><p class="notice-copy">${escapeHtml(item.note)}</p>${canAdmin() ? `<div class="home-notice-actions"><button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button></div>` : ""}</details>`;
+  const plain = item => `<article class="home-notice"><div class="between"><strong>${escapeHtml(item.title)}</strong>${canAdmin() ? `<button data-action="openNotice" data-id="${escapeHtml(item.id)}">수정</button>` : ""}</div><p class="notice-copy">${escapeHtml(item.note)}</p><div class="muted small">${escapeHtml(item.startDate)} ~ ${escapeHtml(item.endDate)}${item.visibility === "내부" ? " · 직원 전용" : ""}</div></article>`;
+  const card = item => canTeacher() ? folded(item) : plain(item);
   return `<section class="panel stack home-notices" aria-label="공지사항"><div class="between"><h2 class="section-title">공지사항</h2>${canAdmin() ? `<button data-action="openNotice">공지 쓰기</button>` : ""}</div>${active.length ? active.map(card).join("") : `<p class="muted">현재 게시 중인 공지가 없습니다.</p>`}${canAdmin() && other.length ? `<details><summary>예정·지난 공지 ${other.length}개</summary>${other.map(card).join("")}</details>` : ""}</section>`;
 }
 
@@ -1857,17 +1870,87 @@ function renderNoticeForm() {
     <label>제목<input name="title" maxlength="150" value="${escapeHtml(item?.title || "")}" placeholder="예: 추석 연휴 수업 안내" required /></label>
     <label>내용<textarea name="note" rows="6" placeholder="안내할 내용을 적어주세요." required>${escapeHtml(item?.note || "")}</textarea></label>
     <div class="grid two"><label>게시 시작<input type="date" name="startDate" value="${item?.startDate || todayIso()}" required /></label><label>게시 종료<input type="date" name="endDate" value="${item?.endDate || addDays(todayIso(), 7)}" required /></label></div>
-    <label>공개 대상<select name="visibility"><option value="전체" ${item?.visibility !== "내부" ? "selected" : ""}>전체</option><option value="내부" ${item?.visibility === "내부" ? "selected" : ""}>직원 전용</option></select></label>
+    ${renderNoticeAudience(item)}
     <p class="muted small">입력 내용은 이 기기에 임시저장됩니다. 공지 등록을 눌러야 게시됩니다.</p>
     <div class="form-actions"><button type="button" data-action="closeModal">취소</button><button type="submit" class="primary">${saved ? "저장" : "공지 등록"}</button></div></form>`;
+}
+
+// ---- 공지 대상: 학생/학부모 + 학교급·학년·학교·개별 학생 ----
+const NOTICE_GRADES = ["초1","초2","초3","초4","초5","초6","중1","중2","중3","고1","고2","고3"];
+function noticeAudienceValue(item) {
+  if (item?.visibility === "내부") return "staff";
+  return item?.audience === "student" || item?.audience === "parent" ? item.audience : "all";
+}
+function parseNoticeTarget(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  try { return JSON.parse(value) || {}; } catch { return {}; }
+}
+function noticeTargetStudents(target) {
+  const t = parseNoticeTarget(target);
+  const any = ["levels","grades","schools","students"].some(k => (t[k] || []).length);
+  return toList(state.students).filter(st => !any
+    || (t.levels || []).includes(String(st.schoolYear || "").slice(0, 1))
+    || (t.grades || []).includes(st.schoolYear || "")
+    || (t.schools || []).includes(st.schoolName || "")
+    || (t.students || []).includes(st.id));
+}
+function noticeTargetLabel(item) {
+  if (item.visibility === "내부") return "직원 전용";
+  const who = { all: "학생·학부모", student: "학생", parent: "학부모" }[item.audience || "all"] || "학생·학부모";
+  const t = parseNoticeTarget(item.target);
+  const names = (t.students || []).map(id => toList(state.students).find(st => st.id === id)?.name).filter(Boolean);
+  const parts = [...(t.levels || []).map(l => l + "등부"), ...(t.grades || []), ...(t.schools || []), ...(names.length > 3 ? [`${names.slice(0, 3).join("·")} 외 ${names.length - 3}명`] : names)];
+  return parts.length ? `${who} · ${parts.join(", ")}` : `${who} 전체`;
+}
+function renderNoticeAudience(item) {
+  const audience = noticeAudienceValue(item);
+  const t = parseNoticeTarget(item?.target);
+  const students = [...toList(state.students)].sort((a, b) => (a.name || "").localeCompare(b.name || "", "ko"));
+  const schools = [...new Set(students.map(st => st.schoolName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
+  const grades = NOTICE_GRADES.filter(g => students.some(st => st.schoolYear === g));
+  const box = (kind, value, label, checked) => `<label class="notice-chip"><input type="checkbox" data-notice-target="${kind}" value="${escapeHtml(value)}" ${checked ? "checked" : ""}/><span>${escapeHtml(label)}</span></label>`;
+  const has = (k, v) => (t[k] || []).includes(v);
+  const picked = ["levels","grades","schools","students"].some(k => (t[k] || []).length);
+  return `<label>보는 사람<select name="audience" data-notice-audience>
+      <option value="all" ${audience === "all" ? "selected" : ""}>학생 + 학부모</option>
+      <option value="student" ${audience === "student" ? "selected" : ""}>학생만</option>
+      <option value="parent" ${audience === "parent" ? "selected" : ""}>학부모만</option>
+      <option value="staff" ${audience === "staff" ? "selected" : ""}>직원 전용</option>
+    </select></label>
+    <input type="hidden" name="target" value="${escapeHtml(JSON.stringify(t))}" />
+    <details class="notice-target" ${picked ? "open" : ""} ${audience === "staff" ? "hidden" : ""}>
+      <summary>받는 그룹 고르기 <span class="muted small" data-notice-count>${picked ? "" : "· 고르지 않으면 모두에게"}</span></summary>
+      <p class="muted small">고른 그룹 중 하나라도 해당하는 학생에게 보여요. 학부모 공지는 그 학생의 학부모에게 보여요.</p>
+      <div class="notice-group"><strong>학교급</strong><div class="notice-chips">${["초","중","고"].map(l => box("levels", l, l + "등부", has("levels", l))).join("")}</div></div>
+      ${grades.length ? `<div class="notice-group"><strong>학년</strong><div class="notice-chips">${grades.map(g => box("grades", g, g, has("grades", g))).join("")}</div></div>` : ""}
+      ${schools.length ? `<div class="notice-group"><strong>학교</strong><div class="notice-chips">${schools.map(sc => box("schools", sc, sc, has("schools", sc))).join("")}</div></div>` : ""}
+      <div class="notice-group"><strong>학생 개별 선택</strong><input type="search" data-notice-search placeholder="이름으로 찾기" aria-label="학생 이름으로 찾기" />
+        <div class="notice-chips notice-students">${students.map(st => `<span data-notice-student="${escapeHtml(st.name || "")}">${box("students", st.id, `${st.name || ""} ${st.schoolYear || ""}`.trim(), has("students", st.id))}</span>`).join("")}</div></div>
+    </details>`;
+}
+function syncNoticeTarget(form) {
+  const t = {};
+  form.querySelectorAll("[data-notice-target]:checked").forEach(el => { (t[el.dataset.noticeTarget] ||= []).push(el.value); });
+  form.querySelector('input[name="target"]').value = JSON.stringify(t);
+  const any = Object.keys(t).length;
+  const count = form.querySelector("[data-notice-count]");
+  if (count) count.textContent = any ? `· 학생 ${noticeTargetStudents(t).length}명 해당` : "· 고르지 않으면 모두에게";
+  const staffOnly = form.querySelector("[data-notice-audience]")?.value === "staff";
+  const details = form.querySelector(".notice-target");
+  if (details) details.hidden = staffOnly;
 }
 
 async function saveNotice(data) {
   if (!canAdmin()) return false;
   if (!data.title?.trim() || !data.note?.trim()) { showMessage("제목과 내용을 입력해주세요."); return false; }
   if (!data.startDate || !data.endDate || data.endDate < data.startDate) { showMessage("게시 종료일은 시작일 이후로 선택해주세요."); return false; }
-  if (!["전체", "내부"].includes(data.visibility)) return false;
-  const payload = { title: data.title.trim(), note: data.note.trim(), start_date: data.startDate, end_date: data.endDate, type: "안내", visibility: data.visibility };
+  if (!["all", "student", "parent", "staff"].includes(data.audience)) return false;
+  const staffOnly = data.audience === "staff";
+  const target = staffOnly ? {} : parseNoticeTarget(data.target);
+  if (!staffOnly && Object.keys(target).length && !noticeTargetStudents(target).length) { showMessage("고른 그룹에 해당하는 학생이 없어요. 그룹을 다시 확인해주세요."); return false; }
+  const payload = { title: data.title.trim(), note: data.note.trim(), start_date: data.startDate, end_date: data.endDate, type: "안내",
+    visibility: staffOnly ? "내부" : "전체", audience: staffOnly ? "all" : data.audience, target };
   const query = supabase.from("academic_events");
   const { error } = await (data.id ? query.update(payload).eq("id", data.id).eq("type", "안내") : query.insert(payload));
   if (error) { showMessage(`공지 저장 실패: ${error.message}`); return false; }
@@ -2436,6 +2519,14 @@ function handleGlobalSubmit(event) {
 }
 
 function handleGlobalInput(event) {
+  const noticeForm = event.target.closest('form[data-form="notice"]');
+  if (noticeForm) {
+    if (event.target.matches("[data-notice-search]")) {
+      const q = event.target.value.trim();
+      noticeForm.querySelectorAll("[data-notice-student]").forEach(el => { el.hidden = !!q && !el.dataset.noticeStudent.includes(q); });
+    }
+    if (event.target.matches("[data-notice-target], [data-notice-audience]")) syncNoticeTarget(noticeForm);
+  }
   const bulkForm=event.target.closest('form[data-form="bulkMaterial"]');
   if(bulkForm)modal.materialDraft=Object.fromEntries(new FormData(bulkForm));
   if(event.target.matches('select[data-action="filterPickerLevel"]')){
@@ -3092,7 +3183,12 @@ function validateStudentPhones(data) {
     showMessage("학생 휴대폰은 010-0000-0000 형식으로 입력해주세요.");
     return null;
   }
-  return { parentPhone: parentPhoneRaw, studentPhone };
+  const parent2Phone = data.parent2Phone?.trim() ? formatPhone(data.parent2Phone) : "";
+  if (parent2Phone && !isValidPhone(parent2Phone)) {
+    showMessage("연락처 2 휴대폰은 010-0000-0000 형식으로 입력해주세요.");
+    return null;
+  }
+  return { parentPhone: parentPhoneRaw, studentPhone, parent2Phone };
 }
 
 // 이름(+학년)만으로 바로 학생 계정을 만듭니다. 시간표/교재/형제 연결/연락처는
@@ -3139,13 +3235,35 @@ async function addStudent(form, data) {
     password: data.password?.trim() || "", birthday4: data.birthday4?.trim() || "",
     schoolYear: data.schoolYear?.trim() || "", schoolName: data.schoolName?.trim() || "",
     studentPhone: phones.studentPhone, parentPhone: phones.parentPhone,
-    parentName: data.parentName?.trim() || "", parentRelation: data.parentRelation || "",
+    parentName: data.parentName?.trim() || "", parentRelation: data.parentRelation?.trim() || "",
     studyPlans
   });
   if (error) { showMessage(`학생 등록 실패: ${error}`); return false; }
+  // 연락처 2와 최초 등록일은 등록 후 바로 저장
+  if (phones.parent2Phone || data.parent2Name?.trim() || data.parent2Relation?.trim() || data.enrolledOn) {
+    await supabase.from("students").update({
+      parent2_phone: phones.parent2Phone || null, parent2_name: data.parent2Name?.trim() || null,
+      parent2_relation: data.parent2Relation?.trim() || null, enrolled_on: data.enrolledOn || null
+    }).eq("id", created.id);
+  }
   await syncStudentSchedules(created.id, scheduleData);
   await applyFamilySiblingLinks(created.id, readSiblingIds(form));
   await loadAllData();
+}
+
+// 연락처 입력 칸 (관계는 모/부 또는 할머니·누나 등 직접 입력)
+function contactFields(n, relation, name, phone) {
+  const k = n === 1 ? "parent" : "parent2";
+  return `<fieldset class="contact-fields"><legend>연락처 ${n}</legend><div class="grid three">
+    <label>관계<input name="${k}Relation" list="contactRelations" maxlength="10" placeholder="모 / 부 / 할머니" value="${escapeHtml(relation || "")}" /></label>
+    <label>성함<input name="${k}Name" maxlength="30" value="${escapeHtml(name || "")}" /></label>
+    <label>휴대폰<input name="${k}Phone" data-phone inputmode="numeric" maxlength="13" placeholder="010-0000-0000" value="${escapeHtml(phone || "")}" /></label>
+  </div></fieldset>`;
+}
+function contactLine(relation, name, phone) {
+  if (!phone && !name) return "";
+  const who = [relation, name].filter(Boolean).join(" ");
+  return `<div class="contact-line"><span>${escapeHtml(who || "연락처")}</span>${phone ? `<a href="tel:${escapeHtml(phone.replace(/\D/g, ""))}">${escapeHtml(phone)}</a>` : ""}</div>`;
 }
 
 async function updateStudent(form, data) {
@@ -3172,7 +3290,9 @@ async function updateStudent(form, data) {
     birthday4: data.birthday4?.trim() || null, school_year: data.schoolYear?.trim() || "", study_plans: studyPlans,
     school_name: data.schoolName?.trim() || null, student_phone: phones.studentPhone || null,
     parent_phone: phones.parentPhone || null, parent_name: data.parentName?.trim() || null,
-    parent_relation: data.parentRelation || null
+    parent_relation: data.parentRelation?.trim() || null,
+    parent2_phone: phones.parent2Phone || null, parent2_name: data.parent2Name?.trim() || null,
+    parent2_relation: data.parent2Relation?.trim() || null, enrolled_on: data.enrolledOn || null
   }).eq("id", student.id);
   if (studentError) { showMessage(`학생 정보 저장 실패: ${studentError.message}`); return false; }
   if (data.password?.trim()) {

@@ -1049,3 +1049,165 @@ th {
 .ac-reflection-dialog form>.between { display:flex;flex-wrap:nowrap;align-items:center;gap:8px; }
 .ac-reflection-dialog form>.between h2 { font-size:clamp(14px,4.2vw,20px);white-space:nowrap; }
 .ac-reflection-dialog form>.between>button { padding:6px 9px;font-size:12px; }
+
+/* 상단의 '자동채점' 이동 버튼 (별도 페이지 링크) */
+a.nav-link-button {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--blue);
+  font-weight: 700;
+  text-decoration: none;
+  background: transparent;
+}
+a.nav-link-button:hover { border-color: #b7beca; }
+
+/* 상단 머리글: 로고·문구 / 이름·연결 상태 / 같은 크기 메뉴 격자 */
+.topbar.tb { display:block; padding:10px clamp(12px,3vw,28px) 10px; }
+.tb-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:40px; }
+.tb-brand { display:flex; align-items:center; gap:12px; min-width:0; }
+.tb-brand img { width:104px; height:38px; object-fit:contain; flex-shrink:0; }
+.tb-slogan { padding-left:12px; border-left:1px solid var(--line); font-size:15px; font-weight:700; letter-spacing:-.01em; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tb-id { display:flex; align-items:center; gap:8px; min-width:0; }
+.tb-id .login-identity { justify-content:flex-end; text-align:right; }
+.tb-id .login-identity strong { font-size:15px; }
+.sync-dot { font-size:11px; line-height:1; cursor:default; user-select:none; }
+.topnav { display:grid; grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:6px; margin-top:10px; }
+.topnav > button, .topnav > a.nav-link-button {
+  display:flex; align-items:center; justify-content:center; width:100%;
+  height:34px; padding:0 6px; border:1px solid var(--line); border-radius:8px;
+  background:#fff; color:var(--ink); font-size:13px; font-weight:600; line-height:1; white-space:nowrap; text-decoration:none;
+  transition:background .15s, border-color .15s;
+}
+.topnav > button:hover, .topnav > a.nav-link-button:hover { background:#f5f7fa; border-color:#c5ccd6; }
+.topnav > button[aria-current="page"] { background:var(--red); border-color:var(--red); color:#fff; }
+.topnav > button[aria-pressed="true"] { background:#eef5ff; border-color:var(--blue); color:var(--blue); }
+@media (max-width:760px) {
+  .topbar.tb { padding:8px 12px; }
+  .tb-brand img { width:84px; height:32px; }
+  .tb-slogan { font-size:13px; padding-left:10px; }
+  .topnav { grid-template-columns:repeat(4, minmax(0, 1fr)); gap:5px; margin-top:8px; }
+  .topnav > button, .topnav > a.nav-link-button { height:32px; font-size:12px; }
+}
+@media (max-width:520px) {
+  .tb-slogan { display:none; }
+  .tb-id .login-identity small { text-align:right; }
+}
+/* 머리글을 본문과 같은 폭에 맞춤 */
+.tb-head, .topnav { width:min(1124px, 100%); margin-left:auto; margin-right:auto; }
+.topnav { margin-top:10px; }
+@media (max-width:760px) { .topnav { margin-top:8px; } }
+
+/* 학생·학부모: 휴대폰 전용 화면 (컴퓨터에서는 가운데 휴대폰 폭으로) */
+body.family-mobile { background:#e6eaf0; }
+body.family-mobile #app { max-width:440px; min-height:100vh; margin:0 auto; background:var(--soft); box-shadow:0 0 0 1px var(--line), 0 12px 40px rgba(15,23,42,.08); }
+body.family-mobile .main { width:100%; padding:14px 12px 40px; }
+body.family-mobile .topbar.tb { padding:8px 12px; }
+body.family-mobile .tb-slogan { display:none; }
+body.family-mobile .tb-brand img { width:84px; height:32px; }
+body.family-mobile .topnav { grid-template-columns:repeat(4, minmax(0, 1fr)); gap:5px; margin-top:8px; }
+body.family-mobile .ac-student-topbar .topnav { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+body.family-mobile .topnav > button, body.family-mobile .topnav > a.nav-link-button { height:34px; font-size:12.5px; padding:0 2px; }
+body.family-mobile .grid.two, body.family-mobile .grid.three { grid-template-columns:1fr; }
+body.family-mobile .ac-dialog, body.family-mobile .ac-reflection-dialog { max-width:420px; }
+.topbar.tb-wide .tb-head, .topbar.tb-wide .topnav { width:100%; }
+/* 휴대폰 폭 화면 안쪽 오른쪽 아래에 카카오톡 문의 버튼 */
+body.family-mobile .ac-kakao-contact { right:max(16px, calc(50vw - 220px + 16px)); }
+
+/* 할 일: 칸마다 하나의 상자 안에 줄 목록으로 */
+.ac-board>section { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+.ac-board>[data-task-status] { min-height:0; }
+.ac-board h4 { margin:0 0 4px; padding-bottom:6px; border-bottom:1px solid var(--line); font-size:13px; }
+.ac-board .ac-empty { padding:10px 0 4px; font-size:12px; text-align:center; }
+.ac-board .ac-task { display:flex; align-items:center; gap:8px; margin:0; padding:8px 2px; border:0; border-bottom:1px solid #eef1f5; border-radius:0; background:transparent; font-size:13px; }
+.ac-board .ac-task:last-child { border-bottom:0; }
+.ac-task-main { flex:1; min-width:0; display:grid; gap:2px; }
+.ac-task-main strong { font-size:14px; font-weight:700; line-height:1.35; }
+.ac-task-meta { display:block; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ac-task-meta .ac-priority { margin:0; padding:1px 6px; font-size:11px; }
+.ac-board .ac-task>.ac-task-actions { display:flex; align-items:center; gap:4px; margin:0; flex-shrink:0; }
+.ac-board .ac-task>.ac-task-actions small { margin:0; font-size:11px; white-space:nowrap; }
+/* 머리글은 불투명하게 */
+.topbar.tb { background:#fff; }
+
+/* 할 일: 제목 왼쪽 정렬, 아래 줄에 담당·우선순위·마감 */
+.ac-board .ac-task>.ac-task-main { display:grid; justify-content:stretch; justify-items:start; gap:2px; margin:0; text-align:left; }
+.ac-task-tools { gap:6px; }
+.ac-task-tools button { padding:6px 12px; font-size:13px; }
+.ac-board.ac-board-1 { grid-template-columns:1fr; }
+.ac-board.ac-board-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media(max-width:720px){ .ac-board.ac-board-2 { grid-template-columns:1fr; } }
+body.family-mobile .ac-board.ac-board-2, body.family-mobile .ac-board.ac-board-3 { grid-template-columns:1fr; }
+
+/* 선생님 화면 공지: 제목 한 줄, 누르면 펼침 */
+.home-notice-fold { border-top:1px solid var(--line); padding:10px 0 0; }
+.home-notice-fold:first-of-type { border-top:0; padding-top:0; }
+.home-notice-fold>summary { display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; list-style:none; }
+.home-notice-fold>summary::-webkit-details-marker { display:none; }
+.home-notice-fold>summary::after { content:'▾'; color:var(--muted); font-size:12px; transition:transform .15s; }
+.home-notice-fold[open]>summary::after { transform:rotate(180deg); }
+.home-notice-fold>summary strong { flex:1; min-width:0; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.home-notice-fold>summary .small { white-space:nowrap; }
+.home-notice-fold .notice-copy { margin:10px 0 6px; }
+.home-notice-actions { display:flex; justify-content:flex-end; }
+.home-notice-fold>summary { color:var(--ink); } .home-notice-fold>summary strong { color:var(--ink); font-weight:700; }
+
+/* 공지 대상 고르기 */
+.notice-target { border:1px solid var(--line); border-radius:8px; padding:10px 12px; background:#fafbfc; }
+.notice-target>summary { cursor:pointer; font-weight:700; font-size:14px; }
+.notice-target>p { margin:8px 0 4px; }
+.notice-group { display:grid; gap:6px; margin-top:10px; }
+.notice-group>strong { font-size:12px; color:var(--muted); }
+.notice-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.notice-students { max-height:180px; overflow:auto; padding:2px; }
+.notice-chip { display:inline-flex; align-items:center; gap:4px; padding:5px 10px; border:1px solid var(--line); border-radius:999px; background:#fff; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; }
+.notice-chip input { width:auto; margin:0; }
+.notice-chip:has(input:checked) { border-color:var(--blue); background:#eef5ff; color:var(--blue); }
+.home-notice-target { margin-top:4px; font-size:12px; color:var(--blue); font-weight:600; }
+
+.ac-reflection-done-list { margin-top:12px; }
+.ac-reflection-done-list>summary { cursor:pointer; color:var(--muted); font-size:13px; font-weight:600; }
+.ac-reflection-done { opacity:.75; }
+
+/* 선생님 화면: 이름 옆 작은 'PC 버전 · 나가기' */
+.tb-mini-links { display:inline-flex; align-items:center; gap:2px; margin-left:2px; }
+.tb-mini { border:0; background:none; padding:2px 4px; font-size:11px; font-weight:600; color:var(--muted); text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
+.tb-mini:hover { color:var(--ink); }
+.tb-mini + .tb-mini::before { content:'·'; margin-right:6px; color:#c0c6d0; text-decoration:none; display:inline-block; }
+
+/* 독수리 캘린더: 내 기록(파랑)·학원 일정(주황) 점 */
+.ac-student-calendar .ac-days button { flex-wrap:nowrap; }
+.ac-student-calendar .ac-event-dot { font-size:6px; color:#e07a10; }
+.ac-student-calendar .selected .ac-event-dot { color:#ffd9a8; }
+.ac-cal-legend .ac-record-dot { color:#15549a; font-size:9px; }
+.ac-cal-legend .ac-event-dot { color:#e07a10; font-size:9px; margin-left:6px; }
+.ac-day-events p { margin:6px 0; }
+.ac-day-records>h3 { margin:6px 0 10px; }
+.ac-student-calendar .ac-days button.ac-academy-closed:not(.selected) { color:#b85a0a; background:#fff6ea; }
+
+/* 학생·학부모 캘린더: 일요일·국경일·공휴일 빨강, 토요일 파랑 */
+.ac-student-calendar .ac-days button.ac-sunday:not(.selected), .ac-parent-calendar .ac-days button.ac-sunday:not(.selected) { color:#d52d3a; font-weight:700; }
+.ac-student-calendar .ac-days button.ac-saturday:not(.selected), .ac-parent-calendar .ac-days button.ac-saturday:not(.selected) { color:#1d5fbf; }
+.ac-student-calendar .ac-week span:first-child, .ac-parent-calendar .ac-week span:first-child { color:#d52d3a; }
+.ac-student-calendar .ac-week span:last-child, .ac-parent-calendar .ac-week span:last-child { color:#1d5fbf; }
+
+/* 학생 연락처 */
+.contact-fields { border:1px solid var(--line); border-radius:8px; padding:8px 12px 12px; margin:0; }
+.contact-fields legend { padding:0 6px; font-size:13px; font-weight:700; color:var(--muted); }
+.contact-line { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
+.contact-line span { color:var(--muted); font-size:13px; min-width:52px; }
+.contact-line a { color:var(--blue); font-weight:600; text-decoration:none; }
+/* 휴대폰 화면(모바일 보기)에서는 간단 정보만 */
+body.family-mobile .pc-only { display:none !important; }
+body.family-mobile .grid.three { grid-template-columns:1fr; }
+.mobile-only { display:none; }
+body.family-mobile .mobile-only { display:block; }
+
+.ac-auto-family { border: 1px solid #c9d8f2; background: #f5f9ff; border-radius: 10px; padding: 12px; margin: 4px 0 12px; display: grid; gap: 6px; }
+.ac-auto-family p { margin: 0; }
+
+.login-guide-link { text-align: center; margin: 16px 0 0; font-size: 15px; }
+.login-guide-link a { text-decoration: none; }
+.login-guide-link a { color: var(--blue); font-weight: 700; }
