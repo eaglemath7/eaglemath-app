@@ -1012,6 +1012,20 @@ th {
   .ac-reflection-dialog .form-actions>.primary { flex:1; }
 }
 
+.ac-lesson-dialog { max-width:1060px; }
+.ac-lesson-compose { display:grid; grid-template-columns:minmax(240px,0.85fr) minmax(0,1.15fr); gap:24px; align-items:start; }
+.ac-lesson-source { background:#eff6ff; border:1px solid #cbdcf5; border-radius:14px; padding:20px; position:sticky; top:0; }
+.ac-lesson-source h3 { margin:0 0 16px; color:#2454a0; }
+.ac-lesson-source h4 { margin:18px 0 7px; font-size:14px; color:#315e98; }
+.ac-lesson-source p { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; margin:0; }
+.ac-lesson-source article+article { border-top:1px solid #cbdcf5; margin-top:18px; padding-top:18px; }
+.ac-lesson-editor label { display:flex; flex-direction:column; gap:8px; }
+.ac-lesson-extra summary { cursor:pointer; color:#526580; padding:12px 0; }
+.ac-task-history-day h3 { border-bottom:1px solid var(--line); padding-bottom:10px; }
+.ac-task-history-day h3 small { color:var(--muted); font-size:13px; }
+.ac-pending-lessons { border-top:3px solid #2563eb; }
+@media(max-width:720px){.ac-lesson-compose{grid-template-columns:1fr}.ac-lesson-source{position:static}}
+
 /* Student calendar and persistent academy identity. */
 .topbar.ac-student-topbar { position:sticky;top:0;z-index:20;background:#fff; }
 .ac-student-calendar { padding:14px; }
