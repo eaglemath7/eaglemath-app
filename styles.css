@@ -1024,6 +1024,15 @@ th {
 .ac-task-history-day h3 { border-bottom:1px solid var(--line); padding-bottom:10px; }
 .ac-task-history-day h3 small { color:var(--muted); font-size:13px; }
 .ac-pending-lessons { border-top:3px solid #2563eb; }
+.ac-pending-time { margin-top:18px;border:1px solid #dbe5f2;border-radius:14px;overflow:hidden;background:#f8fbff; }
+.ac-pending-time-head { display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#eaf2ff;border-bottom:1px solid #d4e1f2; }
+.ac-pending-time-head h4 { margin:0;color:#174b91;font-size:17px; }
+.ac-pending-time-head span { color:#526580;font-size:13px;font-weight:700; }
+.ac-pending-teacher { margin:12px;background:#fff;border:1px solid #e1e8f0;border-radius:12px;padding:0 14px; }
+.ac-pending-teacher-head { display:flex;align-items:center;justify-content:space-between;padding:11px 0 8px;border-bottom:1px solid #edf1f5;color:#263b55; }
+.ac-pending-teacher-head small { color:var(--muted); }
+.ac-pending-student:last-child { border-bottom:0; }
+.ac-pending-student small { margin-top:5px; }
 @media(max-width:720px){.ac-lesson-compose{grid-template-columns:1fr}.ac-lesson-source{position:static}}
 
 /* Student calendar and persistent academy identity. */

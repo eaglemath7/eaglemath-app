@@ -65,6 +65,24 @@ export function pendingLessonSessions(sessions, items, legacy, day) {
       && !legacy.some(r=>!r.hidden&&!r.isDraft&&r.lessonDate===day&&r.period===session.period&&r.studentIds?.includes(session.studentId));
   });
 }
+export function pendingLessonGroups(sessions, teachers=[]) {
+  const teacherName=id=>teachers.find(t=>t.id===id)?.name||'미배정';
+  const timeKey=value=>{
+    const match=String(value||'').match(/(?:^|\D)(\d{1,2}):?(\d{2})\s*[-~–]/);
+    return match?Number(match[1])*60+Number(match[2]):Number.MAX_SAFE_INTEGER;
+  };
+  const periods=new Map();
+  for(const session of sessions){
+    const period=session.period||'시간 미입력';
+    if(!periods.has(period))periods.set(period,new Map());
+    const ids=[...new Set(session.teacherIds||[])].sort((a,b)=>teacherName(a).localeCompare(teacherName(b),'ko'));
+    const key=ids.join('|')||'unassigned';
+    if(!periods.get(period).has(key))periods.get(period).set(key,{teacherIds:ids,teacherNames:ids.length?ids.map(teacherName):['미배정'],sessions:[]});
+    periods.get(period).get(key).sessions.push(session);
+  }
+  return [...periods].map(([period,groups])=>({period,teacherGroups:[...groups.values()].sort((a,b)=>a.teacherNames.join(' · ').localeCompare(b.teacherNames.join(' · '),'ko'))}))
+    .sort((a,b)=>timeKey(a.period)-timeKey(b.period)||String(a.period).localeCompare(String(b.period),'ko'));
+}
 export function completedTaskEntries(items, archives, userId, shared) {
   return items.filter(i=>i.kind==='task'&&i.status==='done'&&(shared?i.audience==='staff':i.assignee_id===userId||i.owner_id===userId)).map(i=>{
     const archive=archives.find(a=>a.task_id===i.id&&a.is_archived);
@@ -221,7 +239,10 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   function pendingLessonQueue(){
     if(!staff())return '';
     const sessions=pendingLessonSessions(lessonStudents(),items,c().state.records||[],day);
-    return `<section class="panel ac-pending-lessons"><div class="between"><h3>알림장 작성할 학생 <span class="badge">${sessions.length}건</span></h3><small>${h(day)}</small></div><p class="muted small">작성 전·초안 상태의 수업입니다. 학생 기록을 보며 바로 이어 쓰세요.</p>${sessions.map(s=>{const draft=rows('lesson_draft').find(i=>i.student_id===s.studentId&&i.day===day&&i.body.period===s.period);const reflection=findLessonReflection(items,s.studentId,day,s.period);return `<div class="ac-line"><div><strong>${h(name(s.studentId))}</strong><small>${h(s.period)} · ${draft?'초안 있음':reflection?'학생 작성 완료':'학생 기록 대기'}</small></div>${btn(draft?'이어서 쓰기':'알림장 쓰기','pending-lesson',JSON.stringify([s.studentId,s.period]),'primary')}</div>`;}).join('')||empty('배정된 수업 중 작성할 알림장이 없습니다.')}</section>`;
+    const groups=pendingLessonGroups(sessions,c().state.teachers);
+    const studentRow=s=>{const draft=rows('lesson_draft').find(i=>i.student_id===s.studentId&&i.day===day&&i.body.period===s.period);const reflection=findLessonReflection(items,s.studentId,day,s.period);return `<div class="ac-line ac-pending-student"><div><strong>${h(name(s.studentId))}</strong><small>${draft?'초안 있음':reflection?'학생 작성 완료':'학생 기록 대기'}</small></div>${btn(draft?'이어서 쓰기':'알림장 쓰기','pending-lesson',JSON.stringify([s.studentId,s.period]),'primary')}</div>`;};
+    const grouped=groups.map(group=>`<section class="ac-pending-time"><div class="ac-pending-time-head"><h4>${h(lessonTime(group.period))}</h4><span>${group.teacherGroups.reduce((sum,g)=>sum+g.sessions.length,0)}명</span></div>${group.teacherGroups.map(tg=>`<div class="ac-pending-teacher"><div class="ac-pending-teacher-head"><strong>${h(tg.teacherNames.join(' · '))} 선생님</strong><small>${tg.sessions.length}명</small></div>${tg.sessions.sort((a,b)=>name(a.studentId).localeCompare(name(b.studentId),'ko')).map(studentRow).join('')}</div>`).join('')}</section>`).join('');
+    return `<section class="panel ac-pending-lessons"><div class="between"><h3>알림장 작성할 학생 <span class="badge">${sessions.length}건</span></h3><small>${h(day)}</small></div><p class="muted small">시간대별 · 선생님별로 구분했습니다. 학생 기록을 보며 바로 이어 쓰세요.</p>${grouped||empty('배정된 수업 중 작성할 알림장이 없습니다.')}</section>`;
   }
   // 이 학생 기록으로 만든 일지가 이미 게시됐는지 (게시된 기록은 일괄 작성 대상에서 제외)
   function reflectionPublished(r){return rows('lesson_draft').some(x=>x.student_id===r.student_id&&x.body.reflection_id===r.id&&x.status!=='draft');}
