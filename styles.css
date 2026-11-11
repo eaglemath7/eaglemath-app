@@ -1033,6 +1033,14 @@ th {
 .ac-pending-teacher-head small { color:var(--muted); }
 .ac-pending-student:last-child { border-bottom:0; }
 .ac-pending-student small { margin-top:5px; }
+.ac-bulk-status { border:1px solid #cbdcf5;border-radius:14px;background:#f8fbff;padding:14px; }
+.ac-bulk-status h3,.ac-bulk-status p { margin:0 0 6px; }
+.ac-bulk-status-list { display:grid;gap:8px;margin-top:12px; }
+.ac-bulk-status-row { display:grid;grid-template-columns:minmax(100px,0.7fr) repeat(3,minmax(130px,1fr));gap:10px;align-items:end;background:#fff;border:1px solid #dde6f0;border-radius:10px;padding:10px; }
+.ac-bulk-status-row>strong { align-self:center; }
+.ac-bulk-status-row label { margin:0;font-size:12px; }
+.ac-bulk-status-row select { min-width:0; }
+@media(max-width:720px){.ac-bulk-status-row{grid-template-columns:1fr}.ac-bulk-status-row>strong{padding-bottom:3px;border-bottom:1px solid #edf1f5}.ac-bulk-defaults{grid-template-columns:1fr}}
 @media(max-width:720px){.ac-lesson-compose{grid-template-columns:1fr}.ac-lesson-source{position:static}}
 
 /* Student calendar and persistent academy identity. */
