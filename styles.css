@@ -1332,3 +1332,18 @@ body.family-mobile .mobile-only { display:block; }
   .ac-pending-name strong { font-size:13px; }
   .ac-pending-period { font-size:10px; padding:2px 4px; }
 }
+
+/* Reviewed multi-student paper journal drafts. */
+.ac-photo-class > label,.ac-photo-row > label,.ac-photo-match label{display:flex;flex-direction:column;gap:4px;font-size:13px;margin:8px 0}
+.ac-photo-class .ac-check{display:flex;flex-direction:row;align-items:center;gap:7px}
+.ac-photo-class .ac-check input{width:auto;min-height:20px}
+.ac-photo-class .toolbar{margin:12px 0}
+.ac-photo-pick{padding:8px 10px;border:1px solid #d9e0eb;border-radius:8px;font-weight:600;font-size:14px}
+.ac-photo-pick input{display:block;max-width:220px;font-size:12px;margin-top:5px}
+.ac-photo-rows{display:grid;gap:12px}
+.ac-photo-row{border:1px solid #dbe2ec;border-radius:10px;padding:12px;background:#fafcff}
+.ac-photo-match{display:grid;grid-template-columns:2fr 1fr;gap:8px}
+.ac-photo-warning{color:#9b4500;background:#fff6e7;padding:6px 8px;border-radius:6px;font-size:12px}
+.ac-photo-footer{position:sticky;bottom:-24px;background:white;border-top:1px solid #dbe2ec;padding:12px 0;display:flex;flex-direction:column;gap:8px}
+.ac-photo-footer small{font-size:12px;color:#667085}
+@media(max-width:480px){.ac-photo-class{padding:12px}.ac-photo-class h2{font-size:18px}.ac-photo-match{grid-template-columns:1fr}.ac-photo-footer{bottom:-12px}.ac-photo-pick{flex:1;min-width:0}.ac-photo-pick input{width:100%}}

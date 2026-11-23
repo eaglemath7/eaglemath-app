@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {matchPhotoStudent,photoRowError,savePhotoRow} from '../photo-class-journal.js';
+const students=[{id:'a',name:'김하늘'},{id:'b',name:'이별'},{id:'c',name:'이별'}];
+assert.equal(matchPhotoStudent({student_name:'김 하늘',name_uncertain:false},students),'a');
+for(const e of [{student_name:'김하늘',name_uncertain:true},{student_name:'김하늘'},{student_name:'김하늘님',name_uncertain:false},{student_name:'이별',name_uncertain:false}])assert.equal(matchPhotoStudent(e,students),'');
+const row={student_id:'a',period:'1700-1830',content:'분수',selected:true,request_id:'request-1'},sessions=[{student_id:'a',period:'1700-1830'}];
+assert.equal(photoRowError(row,[row],sessions),'');assert.match(photoRowError({...row,student_id:''},[],sessions),/학생/);
+assert.match(photoRowError(row,[row,{...row}],sessions),/중복/);assert.match(photoRowError(row,[row],[]),/수업/);
+let saved=[],prior=[],fail=false;
+const db={from(){return {select(){return this},eq(){return this},in(){return Promise.resolve({data:prior})}}},async rpc(name,args){assert.equal(name,'academy_save');assert.equal(args.p_item.status,'draft');assert.equal(args.p_item.audience,'staff');assert.equal(args.p_expected,null);if(fail)return {error:{message:'retry'}};saved.push(args.p_item);prior.push({...args.p_item});return {data:args.p_item}}};
+assert.equal((await savePhotoRow(db,row,'2026-11-24')).message,'초안 저장 완료');assert.equal(saved.length,1);
+assert.equal((await savePhotoRow(db,row,'2026-11-24')).message,'초안 저장 완료');assert.equal(saved.length,1);
+prior=[{id:'other',kind:'lesson',status:'published',body:{period:row.period}}];
+assert.match((await savePhotoRow(db,row,'2026-11-24')).message,/덮어쓰지/);assert.equal(saved.length,1);
+prior=[];fail=true;await assert.rejects(savePhotoRow(db,row,'2026-11-24'),/retry/);fail=false;
+assert.equal((await savePhotoRow(db,row,'2026-11-24')).done,true);assert.equal(saved.length,2);
+console.log('PASS: exact/ambiguous name matching, session validation, duplicate rows, draft-only saves, existing journal protection and retry');
