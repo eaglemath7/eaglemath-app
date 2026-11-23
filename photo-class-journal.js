@@ -28,12 +28,14 @@ export function createPhotoClassJournal({db,context,refresh,close,onSaved,escape
   const roster=()=>context().state.students.filter(s=>s.active&&s.status!=='삭제'&&sessions.some(t=>t.student_id===s.id));
   function redraw(){const el=document.querySelector('[data-photo-class-dialog]'),top=el?.scrollTop||0;refresh();const next=document.querySelector('[data-photo-class-dialog]');if(next)next.scrollTop=top;}
   async function loadSessions(){
-    const result=await db.rpc('academy_lesson_sessions',{p_day:day});if(result.error)throw new Error('수업 목록을 불러오지 못했습니다.');
+    const requestedDay=day,userId=context().session?.id,mine=generation;
+    const result=await db.rpc('academy_lesson_sessions',{p_day:requestedDay});if(result.error)throw new Error('수업 목록을 불러오지 못했습니다.');
+    if(mine!==generation||requestedDay!==day||userId!==context().session?.id)throw new Error('로그인이 변경되었습니다. 다시 시작해주세요.');
     const user=context().session;
     sessions=(result.data||[]).filter(s=>['admin','deputy'].includes(user?.role)||(s.teacher_ids||[]).includes(user?.id)||s.lesson_type==='보충');
   }
   function reset(){generation++;opened=false;working=false;rows=[];sessions=[];confirmed=false;}
-  async function open(date){if(!allowed())return;reset();opened=true;day=date;message='수업 목록을 불러오는 중…';warning='';readDay='';redraw();try{await loadSessions();message='';}catch(e){message=e.message;}redraw();}
+  async function open(date){if(!allowed())return;reset();opened=true;working=true;const mine=generation;day=date;message='수업 목록을 불러오는 중…';warning='';readDay='';redraw();try{await loadSessions();message='';}catch(e){message=e.message;}if(mine!==generation)return;working=false;redraw();}
   function render(){
     if(!opened||!allowed())return '';
     const students=roster(),selected=rows.filter(r=>r.selected&&!r.done),locked=working?'disabled':'';
@@ -78,6 +80,7 @@ export function createPhotoClassJournal({db,context,refresh,close,onSaved,escape
     const chosen=rows.filter(r=>r.selected&&!r.done);if(!chosen.length||chosen.some(r=>photoRowError(r,rows,sessions)))return;
     const mine=generation,user=context().session?.id;
     working=true;confirmed=false;message='확인한 초안을 저장하고 있어요…';redraw();
+    try{await loadSessions();if(chosen.some(r=>photoRowError(r,rows,sessions)))throw new Error('수업 배정이 바뀌었습니다. 학생·수업을 다시 확인해주세요.');}catch(err){if(mine===generation){working=false;message=err.message;redraw();}return;}
     for(const r of chosen){if(mine!==generation||user!==context().session?.id)break;try{if(!allowed())throw new Error('로그인을 확인해주세요.');const legacy=(context().state.records||[]).some(i=>((i.studentIds||[]).includes(r.student_id)||(i.studentId||i.student_id)===r.student_id)&&(i.date||i.lessonDate||i.lesson_date)===day&&i.period===r.period);if(legacy){r.done=true;r.selected=false;r.message='기존 수업기록 있음 · 덮어쓰지 않음';continue;}const result=await savePhotoRow(db,r,day,()=>mine===generation&&user===context().session?.id&&allowed());Object.assign(r,result);r.selected=false;}catch(err){r.message=err.message;}}
     if(mine!==generation||user!==context().session?.id)return;
     message=`${chosen.filter(r=>r.done).length}건 처리 · ${chosen.filter(r=>!r.done).length}건 실패. 초안은 알림장 목록의 ‘이어서’에서 수정·게시할 수 있습니다.`;

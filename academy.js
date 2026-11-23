@@ -1,4 +1,4 @@
-import { createPhotoClassJournal } from './photo-class-journal.js?v=1';
+import { createPhotoClassJournal } from './photo-class-journal.js?v=2';
 import { homeworkOverview, parentConversation, previousHomework } from './journal-workflow.js?v=1';
 import { lessonTime } from './lesson-time.js?v=1';
 import { openWeeklyJournal } from './weekly-journal.js?v=2';

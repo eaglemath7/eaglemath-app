@@ -15,3 +15,4 @@ assert.match((await savePhotoRow(db,row,'2026-11-24')).message,/덮어쓰지/);a
 prior=[];fail=true;await assert.rejects(savePhotoRow(db,row,'2026-11-24'),/retry/);fail=false;
 assert.equal((await savePhotoRow(db,row,'2026-11-24')).done,true);assert.equal(saved.length,2);
 console.log('PASS: exact/ambiguous name matching, session validation, duplicate rows, draft-only saves, existing journal protection and retry');
+prior=[];const count=saved.length;await assert.rejects(savePhotoRow(db,row,'2026-11-24',()=>false),/로그인/);assert.equal(saved.length,count);
