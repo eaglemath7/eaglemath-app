@@ -1287,10 +1287,18 @@ body.family-mobile .mobile-only { display:block; }
 /* Start a shared lesson directly from the time/teacher group on the home screen. */
 .ac-pending-teacher-head { flex-wrap:wrap; gap:6px 10px; }
 .ac-pending-teacher-head > button { margin-left:auto; min-height:36px; padding:6px 10px; }
-.ac-bulk-status-row .ac-bulk-student { display:flex; align-items:center; gap:7px; color:var(--ink); font-weight:700; }
+.ac-bulk-status-row .ac-bulk-student { display:flex; flex-direction:row; align-items:center; gap:7px; color:var(--ink); font-weight:700; }
 .ac-bulk-student input[type=checkbox] { width:18px; height:18px; flex:none; }
 .ac-bulk-individual { grid-column:1/-1; border-top:1px solid var(--line); padding-top:6px; }
 .ac-bulk-individual > summary { cursor:pointer; min-height:32px; padding:5px 0; font-size:12px; color:var(--blue); }
 .ac-bulk-individual[open] { display:grid; gap:8px; }
 .ac-bulk-individual[open] > .ac-bulk-student { font-weight:400; }
 .ac-bulk-individual textarea { min-height:64px; }
+
+.ac-bulk-status > summary { cursor:pointer; min-height:36px; padding:6px 0; font-weight:700; color:var(--blue); }
+.ac-lesson-dialog .form-actions { position:sticky; bottom:-24px; z-index:2; padding:10px 0 0; background:#fff; border-top:1px solid var(--line); }
+@media(max-width:720px){.ac-lesson-dialog .form-actions{bottom:-18px}.ac-lesson-dialog .form-actions button{min-height:40px;flex:1}}
+
+.ac-lesson-compose > details.ac-lesson-source { position:static; padding:10px 14px; }
+.ac-lesson-source > summary { cursor:pointer; font-size:13px; font-weight:700; color:var(--blue); }
+.ac-lesson-source[open] > summary { margin-bottom:10px; }

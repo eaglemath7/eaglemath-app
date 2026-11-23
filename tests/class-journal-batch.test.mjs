@@ -34,7 +34,8 @@ try {
  const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const academy=createAcademy({db,context:()=>({session:{id:'admin',role:'admin'},state,modalOpen:false}),refresh:()=>{},notices:()=>'',escape});
  await academy.load();
- const click=async(action,id)=>{const button={dataset:{ac:action,id}};await listeners.get('click')[0]({target:{closest:()=>button},preventDefault(){},stopImmediatePropagation(){}});};
+ const dispatch=async(type,event)=>{let stopped=false;event.stopImmediatePropagation=()=>{stopped=true;};for(const handler of listeners.get(type)||[]){await handler(event);if(stopped)break;}};
+ const click=async(action,id)=>{const button={dataset:{ac:action,id}};await dispatch('click',{target:{closest:selector=>selector==='[data-ac]'?button:null},preventDefault(){}});};
  await click('pending-bulk-lesson',JSON.stringify(['1700-1830',['teacher']]));
  let html=academy.render('home');
  assert.match(html,/반 전체 알림장 작성/);
@@ -45,11 +46,11 @@ try {
  const base=[['bulk_mode','1'],['title','반 전체 수업'],['content','공통 수업 내용'],['assignment','공통 과제'],['parent_message','공통 전달사항'],['attendance','present'],['homework_status','완료'],['attitude','좋음'],['material',''],['course','']];
  const submit=async(entries,intent='draft')=>{
   const status={textContent:''},form={dataset:{acForm:'lesson',id:''},entries,querySelector:()=>status,querySelectorAll:()=>[]};
-  await listeners.get('submit')[0]({target:{closest:()=>form},submitter:{value:intent},preventDefault(){},stopImmediatePropagation(){}});
+  await dispatch('submit',{target:{closest:selector=>selector==='[data-ac-form]'?form:null},submitter:{value:intent},preventDefault(){}});
   return status;
  };
  // Exclude one child, override only s1, preserve an existing teacher draft at s2.
- const entries=[...base,...students.slice(0,7).map(s=>['lessonStudent',s.id]),['individual:s1','on'],['content:s1','개별 심화 수업'],['assignment:s1','개별 심화 5문제'],['parent_message:s1','개별 안내']];
+ const entries=[...base,...students.slice(0,7).map(s=>['lessonStudent',s.id]),['individual:s1','on'],['content:s1',''],['assignment:s1','개별 심화 5문제'],['parent_message:s1','']];
  failStudent='s6';await submit(entries);
  assert.equal(publishes.length,0,'draft save never publishes');
  assert.equal(records.filter(r=>r.kind==='lesson_draft'&&r.student_id==='s6').length,0);
@@ -58,6 +59,8 @@ try {
  assert.equal(drafts.length,7,'retry reuses student request IDs and existing drafts');
  assert.equal(drafts.find(r=>r.student_id==='s0').body.content,'공통 수업 내용');
  assert.equal(drafts.find(r=>r.student_id==='s1').body.assignment,'개별 심화 5문제');
+ assert.equal(drafts.find(r=>r.student_id==='s1').body.content,'공통 수업 내용');
+ assert.equal(drafts.find(r=>r.student_id==='s1').body.parent_message,'공통 전달사항');
  assert.equal(drafts.find(r=>r.student_id==='s2').body.assignment,'기존 개별 과제');
  assert(!drafts.some(r=>['s7','s8','s9','s10'].includes(r.student_id)));
  assert(drafts.every(r=>!Object.keys(r.body).some(k=>k.includes(':')||['bulk_mode','lessonStudent'].includes(k))));
