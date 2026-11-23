@@ -1302,3 +1302,33 @@ body.family-mobile .mobile-only { display:block; }
 .ac-lesson-compose > details.ac-lesson-source { position:static; padding:10px 14px; }
 .ac-lesson-source > summary { cursor:pointer; font-size:13px; font-weight:700; color:var(--blue); }
 .ac-lesson-source[open] > summary { margin-bottom:10px; }
+
+/* One student per line: no nested time/teacher cards. */
+.ac-pending-compact > .between h3 { margin:0; font-size:16px; }
+.ac-pending-tools { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:10px 0 8px; }
+.ac-pending-tools select { width:auto; max-width:100%; min-width:110px; height:34px; padding:4px 8px; font-size:12px; }
+.ac-pending-tools button { min-height:34px; padding:5px 9px; font-size:12px; }
+.ac-pending-tools > .primary { margin-left:auto; }
+.ac-pending-roster { border-top:1px solid #e1e5f0; background:#f6f7ff; border-radius:6px; }
+.ac-pending-row { display:grid; grid-template-columns:minmax(105px,1fr) minmax(110px,1.15fr) minmax(80px,.85fr) 48px; align-items:center; gap:8px; min-height:44px; padding:3px 8px; border-bottom:1px solid #e3e7f1; }
+.ac-pending-row:last-child { border-bottom:0; }
+.ac-pending-row.is-selected { background:#e8eaff; }
+.ac-pending-name { display:flex; align-items:center; gap:6px; min-height:36px; min-width:0; color:var(--ink); cursor:pointer; }
+.ac-pending-name input[type=checkbox] { width:18px; height:18px; margin:0; flex:none; accent-color:#5040e8; }
+.ac-pending-name strong { font-size:14px; overflow-wrap:anywhere; }
+.ac-pending-name small { color:var(--muted); font-size:10px; white-space:nowrap; font-weight:400; }
+.ac-pending-meta { display:contents; }
+.ac-pending-period { width:fit-content; max-width:100%; padding:3px 5px; background:#fff0dd; color:#ad4c0a; border-radius:4px; font-size:11px; line-height:1.35; overflow-wrap:anywhere; }
+.ac-pending-owner { font-size:12px; color:#6556bd; line-height:1.3; overflow-wrap:anywhere; }
+.academy button.ac-pending-write { min-height:36px; padding:3px 2px; border:0; background:transparent; color:var(--blue); font-size:12px; white-space:nowrap; }
+@media(max-width:760px) {
+  .ac-pending-tools { margin:7px 0; }
+  .ac-pending-tools select { flex:1; min-width:124px; }
+  .academy .ac-pending-tools select { font-size:13px; }
+  .ac-pending-row { grid-template-columns:minmax(94px,.9fr) minmax(115px,1.2fr) 36px; min-height:46px; gap:6px; padding:3px 6px; }
+  .ac-pending-meta { display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-width:0; }
+  .ac-pending-owner { font-size:10px; }
+  .ac-pending-name { gap:5px; }
+  .ac-pending-name strong { font-size:13px; }
+  .ac-pending-period { font-size:10px; padding:2px 4px; }
+}

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createAcademy, mergeClassLessonBody } from '../academy.js';
+import { createAcademy, mergeClassLessonBody, compactPendingStudents } from '../academy.js';
 
 const originalGlobals={document:globalThis.document,FormData:globalThis.FormData,setInterval:globalThis.setInterval,alert:globalThis.alert,localStorage:globalThis.localStorage};
 const listeners=new Map(),messages=[];
@@ -28,7 +28,7 @@ try {
   if(name==='academy_publish'){
    if(records.find(r=>r.id===args.p_id)?.student_id===failPublishStudent)return {error:{message:'모의 게시 실패'}};
    const item=records.find(r=>r.id===args.p_id);item.status='published';publishes.push(item.student_id);
-   records.push({...item,id:'published-'+item.student_id,kind:'lesson'});return {data:item.id,error:null};
+   records.push({...item,id:'published-'+item.student_id+'-'+item.body.period,kind:'lesson'});return {data:item.id,error:null};
   }
   return {data:[],error:null};
  }};
@@ -71,6 +71,28 @@ try {
  const before=writes.length;
  const status=await submit(base);assert.match(status.textContent,/한 명 이상/);assert.equal(writes.length,before);
  const outsider=await submit([...base,['lessonStudent','s8']]);assert.match(outsider.textContent,/작성 대상/);assert.equal(writes.length,before);
+ // Compact selection spans teachers/times without assigning every child the first period.
+ sessions.push({student_id:'s7',period:'1900-2000',teacher_ids:['teacher'],lesson_type:'정규'});
+ records.push(...['1700-1830','1900-2000'].map((p,i)=>({id:'r7-'+i,kind:'reflection',student_id:'s7',day,status:'submitted',body:{period:p,learned:'수업 '+p,assignment:'학생 과제 '+p},updated_at:'source-'+i})));
+ await academy.load();
+ const compact=compactPendingStudents(sessions.map(s=>({studentId:s.student_id,period:s.period,teacherIds:s.teacher_ids})),students,state.teachers);
+ assert.equal(compact.length,11);assert.equal(compact.find(r=>r.studentId==='s7').sessions.length,2);
+ assert.equal(compactPendingStudents(sessions.map(s=>({studentId:s.student_id,period:s.period,teacherIds:s.teacher_ids})),students,state.teachers,{teacher:'other'}).length,1);
+ await click('pending-select-all','');
+ assert.match(academy.render('home'),/선택한 3명 일괄 작성/);
+ const changeTeacher=async value=>dispatch('change',{target:{value,matches:selector=>selector==='[data-pending-teacher]',closest:()=>null},preventDefault(){}});
+ await changeTeacher('other');assert.match(academy.render('home'),/선택한 0명 일괄 작성/);
+ await click('pending-select-all','');assert.match(academy.render('home'),/선택한 1명 일괄 작성/);
+ await changeTeacher('');await click('pending-select-all','');await click('pending-selected-lesson','');
+ const mixed=[...base,...['s7','s8','s9'].map(id=>['lessonStudent',id])];
+ const mixedStart=writes.length;await submit(mixed,'publish');
+ const mixedDrafts=writes.slice(mixedStart).filter(r=>r.kind==='lesson_draft');
+ assert.equal(mixedDrafts.length,4);
+ assert.deepEqual(mixedDrafts.filter(r=>r.student_id==='s7').map(r=>r.body.period).sort(),['1700-1830','1900-2000']);
+ assert.equal(mixedDrafts.find(r=>r.student_id==='s9').body.period,'1800-1900');
+ assert.equal(mixedDrafts.find(r=>r.student_id==='s7'&&r.body.period==='1700-1830').body.reflection_id,'r7-0');
+ assert.equal(mixedDrafts.find(r=>r.student_id==='s7'&&r.body.period==='1900-2000').body.reflection_id,'r7-1');
+ const plans=writes.slice(mixedStart).filter(r=>r.kind==='class_plan');assert.equal(new Set(plans.map(p=>p.id)).size,4);
  const auto=mergeClassLessonBody({assignment:'공통 과제'},{assignment:'학생 과제'},{assignment:'학생 과제'});
  assert.equal(auto.assignment,'공통 과제','auto-copied reflection may take the teacher common assignment');
  assert.equal(mergeClassLessonBody({assignment:'새 공통'},{assignment:'개별 과제'}).assignment,'개별 과제');
