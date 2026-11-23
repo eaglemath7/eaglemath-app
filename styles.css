@@ -715,6 +715,9 @@ th {
 /* Home announcements */
 .home-notices { margin-bottom: 20px; }
 .home-notices > .between { gap: 12px; }
+.home-notices-heading { display:flex; align-items:baseline; gap:10px; min-width:0; flex-wrap:wrap; }
+.home-notices-heading .section-title { margin:0; white-space:nowrap; }
+.home-notices-empty { margin:0; font-size:13px; line-height:1.4; }
 .home-notice { padding: 14px 0; border-top: 1px solid var(--line); }
 .home-notice strong { overflow-wrap: anywhere; }
 .notice-copy { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; margin: 8px 0; }
@@ -1228,3 +1231,55 @@ body.family-mobile .mobile-only { display:block; }
 .login-guide-link { text-align: center; margin: 16px 0 0; font-size: 15px; }
 .login-guide-link a { text-decoration: none; }
 .login-guide-link a { color: var(--blue); font-weight: 700; }
+
+
+/* Compact reading rhythm on phones, also picked up by the 440px family shell.
+   Keep full record text and touch targets; remove space around it. */
+@media (max-width:760px) {
+  .main, body.family-mobile .main { padding:8px 10px 28px; }
+  .academy { font-size:14px; line-height:1.45; }
+  .academy .panel { padding:10px 12px; margin-bottom:10px; }
+  .academy .stack { gap:6px; }
+  .academy h2 { font-size:16px; }
+  .academy h3 { font-size:15px; }
+  .academy h4 { font-size:14px; }
+  .academy h2, .academy h3, .academy h4 { margin:0 0 6px; line-height:1.35; }
+  .academy p { margin-top:5px; margin-bottom:5px; }
+  .academy .between { gap:6px 8px; }
+  .academy .between > h2, .academy .between > h3 { margin:0; }
+  .academy button { min-height:36px; padding:6px 9px; font-size:13px; line-height:1.25; }
+  .academy input:not([type=checkbox]):not([type=radio]), .academy select, .academy textarea { font-size:16px; }
+  .academy .notice-copy { margin:4px 0; line-height:1.45; }
+  .academy .ac-empty { padding:4px 0; margin:0; line-height:1.4; }
+  .academy .home-notices { gap:5px; }
+  .home-notices-heading { flex-wrap:nowrap; gap:6px; }
+  .academy .home-notices-heading .section-title { margin:0; font-size:15px; }
+  .academy .home-notices-empty { margin:0; font-size:11px; white-space:nowrap; }
+  .home-notices > .between > button { margin-left:auto; }
+  .home-notices summary { padding:5px 0; font-size:12px; }
+  .home-notice { padding:7px 0; }
+  .home-notice-fold .notice-copy { margin:5px 0; }
+  .academy .ac-current-homework > article { margin-top:6px; }
+  .ac-current-homework > article > small { display:block; font-size:11px; line-height:1.35; }
+  .academy .ac-current-homework h3 { margin:8px 0 4px; }
+  .academy .ac-homework-deadline { margin:4px 0; font-size:12px; }
+  .academy .ac-line { padding:6px 0; gap:6px 10px; }
+  .academy .ac-line small { margin:2px 0; }
+  .academy .ac-title { margin:10px 0; gap:6px; }
+  .academy .ac-title p { margin:0; font-size:12px; }
+  .academy .ac-selection, .academy .ac-footer, .academy .ac-children { margin:8px 0; gap:6px; }
+  .ac-student-list { gap:6px; }
+  .academy .ac-student-list .ac-student-row { padding:8px 10px; margin:0; }
+  .ac-student-list .ac-student-summary { gap:4px 8px; }
+  .ac-student-list .ac-prior { gap:2px 6px; line-height:1.4; }
+  .ac-student-list .ac-prior small { margin:0; }
+  .ac-student-details > summary { display:flex; align-items:center; min-height:32px; padding:2px 0; margin-top:2px; }
+  .ac-workspace { gap:8px; }
+  .academy .ac-reflection-card { padding:8px; }
+  .academy .ac-reflection-copy p { margin:3px 0; line-height:1.4; }
+  .academy .ac-reply { padding:8px 10px; margin:6px 0; }
+  .academy .ac-history-entry { padding:8px 10px; margin-top:6px; }
+  .academy .ac-history-entry p { margin:4px 0; }
+  .academy .ac-week span { padding:5px 2px; }
+  .academy .ac-day-list { padding-top:8px; margin-top:8px; }
+}
