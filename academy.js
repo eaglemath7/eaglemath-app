@@ -87,6 +87,19 @@ export function lessonStatusForStudent(data, studentId, existing={}) {
   const value=key=>data[`${key}:${studentId}`]||data[key]||existing[key]||'';
   return {attendance:value('attendance'),homework_status:value('homework_status'),attitude:value('attitude')};
 }
+// A common write may replace auto-copied student text, but preserves teacher edits.
+export function mergeClassLessonBody(common, existing={}, source={}, individual={}) {
+  const original=reflectionLessonBody(source), body={...original,...existing};
+  const fields=['content','assignment','parent_message','material','unit','course','track','learned','feeling','keywords','student_message','internal_note','assignment_due','pages','worksheets'];
+  for(const key of fields){
+    if(typeof common[key]!=='string'||!common[key].trim())continue;
+    const own=existing[key];
+    if(typeof own==='string'&&own.trim()&&own!==original[key])continue;
+    body[key]=common[key];
+  }
+  for(const key of ['content','assignment','parent_message'])if(Object.hasOwn(individual,key))body[key]=individual[key];
+  return body;
+}
 export function completedTaskEntries(items, archives, userId, shared) {
   return items.filter(i=>i.kind==='task'&&i.status==='done'&&(shared?i.audience==='staff':i.assignee_id===userId||i.owner_id===userId)).map(i=>{
     const archive=archives.find(a=>a.task_id===i.id&&a.is_archived);
@@ -245,8 +258,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const sessions=pendingLessonSessions(lessonStudents(),items,c().state.records||[],day);
     const groups=pendingLessonGroups(sessions,c().state.teachers);
     const studentRow=s=>{const draft=rows('lesson_draft').find(i=>i.student_id===s.studentId&&i.day===day&&i.body.period===s.period);const reflection=findLessonReflection(items,s.studentId,day,s.period);return `<div class="ac-line ac-pending-student"><div><strong>${h(name(s.studentId))}</strong><small>${draft?'초안 있음':reflection?'학생 작성 완료':'학생 기록 대기'}</small></div>${btn(draft?'이어서 쓰기':'알림장 쓰기','pending-lesson',JSON.stringify([s.studentId,s.period]),'primary')}</div>`;};
-    const grouped=groups.map(group=>`<section class="ac-pending-time"><div class="ac-pending-time-head"><h4>${h(lessonTime(group.period))}</h4><span>${group.teacherGroups.reduce((sum,g)=>sum+g.sessions.length,0)}명</span></div>${group.teacherGroups.map(tg=>`<div class="ac-pending-teacher"><div class="ac-pending-teacher-head"><strong>${h(tg.teacherNames.join(' · '))} 선생님</strong><small>${tg.sessions.length}명</small></div>${tg.sessions.sort((a,b)=>name(a.studentId).localeCompare(name(b.studentId),'ko')).map(studentRow).join('')}</div>`).join('')}</section>`).join('');
-    return `<section class="panel ac-pending-lessons"><div class="between"><h3>알림장 작성할 학생 <span class="badge">${sessions.length}건</span></h3><small>${h(day)}</small></div><p class="muted small">시간대별 · 선생님별로 구분했습니다. 학생 기록을 보며 바로 이어 쓰세요.</p>${grouped||empty('배정된 수업 중 작성할 알림장이 없습니다.')}</section>`;
+    const grouped=groups.map(group=>`<section class="ac-pending-time"><div class="ac-pending-time-head"><h4>${h(lessonTime(group.period))}</h4><span>${group.teacherGroups.reduce((sum,g)=>sum+g.sessions.length,0)}명</span></div>${group.teacherGroups.map(tg=>`<div class="ac-pending-teacher"><div class="ac-pending-teacher-head"><strong>${h(tg.teacherNames.join(' · '))} 선생님</strong><small>${tg.sessions.length}명</small>${btn('반 전체 작성','pending-bulk-lesson',JSON.stringify([group.period,tg.teacherIds]),'primary')}</div>${tg.sessions.sort((a,b)=>name(a.studentId).localeCompare(name(b.studentId),'ko')).map(studentRow).join('')}</div>`).join('')}</section>`).join('');
+    return `<section class="panel ac-pending-lessons"><div class="between"><h3>알림장 작성할 학생 <span class="badge">${sessions.length}건</span></h3><small>${h(day)}</small></div><p class="muted small">같은 수업은 ‘반 전체 작성’으로 한 번에 쓰고, 다른 내용만 개별 수정하세요.</p>${grouped||empty('배정된 수업 중 작성할 알림장이 없습니다.')}</section>`;
   }
   // 이 학생 기록으로 만든 일지가 이미 게시됐는지 (게시된 기록은 일괄 작성 대상에서 제외)
   function reflectionPublished(r){return rows('lesson_draft').some(x=>x.student_id===r.student_id&&x.body.reflection_id===r.id&&x.status!=='draft');}
@@ -340,7 +353,12 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     return `<div class="ac-lesson-checks ${bulk?'ac-bulk-defaults':''}">`+statusSelect(bulk?'전체 출석':'출석','attendance',attendanceOptions,d.attendance||'',master('attendance'))+statusSelect(bulk?'전체 과제수행도':'과제수행도','homework_status',homeworkStatusOptions,d.homework_status||'',master('homework_status'))+statusSelect(bulk?'전체 수업집중도':'수업집중도','attitude',attitudeOptions,d.attitude||'',master('attitude'))+`<label class="ac-due-choice"><span><input type="checkbox" data-ac-custom-due ${d.assignment_due?'checked':''}/> 마감일 직접 지정</span><small>기본: 다음 수업 전까지</small><input type="hidden" name="assignment_due" value=""/><input type="datetime-local" name="assignment_due" aria-label="과제 지정 마감일" value="${h(d.assignment_due||'')}" ${d.assignment_due?'required':'disabled hidden'}/></label>`+`</div>`;
   }
   function bulkStudentChecks(ids){
-    return `<section class="ac-bulk-status"><div><h3>학생별 확인·수정</h3><p class="muted small">위의 전체 값을 먼저 선택한 뒤, 다른 학생만 아래에서 바꾸세요.</p></div><div class="ac-bulk-status-list">${ids.map(id=>{const att=rows('attendance').find(x=>x.student_id===id&&x.day===day&&x.body.period===period);const draft=rows('lesson_draft').find(x=>x.student_id===id&&x.day===day&&x.body.period===period);const d={attendance:att?.status||draft?.body.attendance||'',homework_status:draft?.body.homework_status||'',attitude:att?.body.attitude||draft?.body.attitude||''};return `<div class="ac-bulk-status-row"><strong>${h(name(id))}</strong>${statusSelect('출석',`attendance:${id}`,attendanceOptions,d.attendance,`data-ac-student-status="attendance"`)}${statusSelect('과제수행도',`homework_status:${id}`,homeworkStatusOptions,d.homework_status,`data-ac-student-status="homework_status"`)}${statusSelect('수업집중도',`attitude:${id}`,attitudeOptions,d.attitude,`data-ac-student-status="attitude"`)}</div>`;}).join('')}</div></section>`;
+    return `<section class="ac-bulk-status"><input type="hidden" name="bulk_mode" value="1"/><h3>대상 학생 · 개별 수정</h3><p class="muted small">체크한 학생에게만 적용합니다. 기존에 따로 작성한 내용은 유지하며, 다른 내용은 아래에서 입력하세요.</p><div class="ac-bulk-status-list">${ids.map(id=>{
+      const att=rows('attendance').find(x=>x.student_id===id&&x.day===day&&x.body.period===period);
+      const draft=rows('lesson_draft').find(x=>x.student_id===id&&x.day===day&&x.body.period===period);
+      const d={attendance:att?.status||draft?.body.attendance||'',homework_status:draft?.body.homework_status||'',attitude:att?.body.attitude||draft?.body.attitude||''};
+      return `<div class="ac-bulk-status-row"><label class="ac-bulk-student"><input type="checkbox" name="lessonStudent" value="${h(id)}" checked/>${h(name(id))}</label>${statusSelect('출석',`attendance:${id}`,attendanceOptions,d.attendance,`data-ac-student-status="attendance"`)}${statusSelect('과제수행도',`homework_status:${id}`,homeworkStatusOptions,d.homework_status,`data-ac-student-status="homework_status"`)}${statusSelect('수업집중도',`attitude:${id}`,attitudeOptions,d.attitude,`data-ac-student-status="attitude"`)}<details class="ac-bulk-individual"><summary>${h(name(id))} 개별 내용${draft?' · 기존 초안 있음':''}</summary><label class="ac-bulk-student"><input type="checkbox" name="individual:${h(id)}"/>이 학생은 아래 개별 내용 사용</label>${area('개별 수업 내용',`content:${id}`,draft?.body.content||'')}${area('개별 과제',`assignment:${id}`,draft?.body.assignment||'')}${area('개별 학부모 코멘트',`parent_message:${id}`,draft?.body.parent_message||'')}</details></div>`;
+    }).join('')}</div></section>`;
   }
   function parentLearningSummary(){
     const id=current(), lessons=rows('lesson').filter(i=>i.student_id===id&&i.status==='published');
@@ -485,9 +503,9 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const refs=ids.map(id=>findLessonReflection(items,id,i?.day||day,i?.body.period||period,source?.id||i?.body.reflection_id)).filter(Boolean);
     const own=source||(ids.length===1?refs[0]:null);
     const d={...reflectionLessonBody(own?.body),...i?.body};
-    return form(i?'알림장 수정':'알림장 쓰기','lesson',`<p>${ids.map(name).map(h).join(', ')} · ${h(i?.day||day)} · ${h(i?.body.period||period)}</p><input type="hidden" name="reflection_id" value="${h(own?.id||i?.body.reflection_id||'')}"/><div class="ac-lesson-compose"><aside class="ac-lesson-source"><h3>학생이 쓴 세 줄</h3>${refs.map(r=>`<article><strong>${h(name(r.student_id))}</strong><p class="muted small">${h(r.body.material||'')} ${h(r.body.unit||'')} ${h(r.body.pages||'')}</p><h4>① 공부한 것</h4><p>${h(r.body.learned||'아직 작성하지 않았어요.')}</p><h4>② 숙제</h4><p>${h(r.body.assignment||'아직 작성하지 않았어요.')}</p><h4>③ 성취와 도전</h4><p>${h(r.body.feeling||'아직 작성하지 않았어요.')}</p></article>`).join('')||'<p class="muted">제출된 학생 기록이 없습니다. 선생님이 먼저 작성할 수 있어요.</p>'}</aside><div class="stack ac-lesson-editor">`+
-      input('수업 제목','title',i?.title||'오늘 수업')+lessonChecks(d,ids.length>1)+(ids.length>1?bulkStudentChecks(ids):'')+area('오늘 공부한 내용','content',d.content)+area('오늘의 숙제','assignment',d.assignment)+area('선생님 코멘트 · 학부모님께','parent_message',d.parent_message)+btn('AI 문장 다듬기','polish-form')+`<div class="ac-ai-result"></div><details class="ac-lesson-extra"><summary>교재·진도·추가 메모</summary><div class="stack">`+
-      input('교재','material',d.material)+input('단원','unit',d.unit)+input('학습 과정 (입력하면 진도표에 자동 반영)','course',d.course)+select('진도 구분','track',['현행','선행','복습'].map(x=>[x,x]),d.track||'현행')+area('오늘 알게 된 것','learned',d.learned)+area('학생 소감','feeling',d.feeling)+area('선생님 관찰 키워드','keywords',d.keywords)+area('학생에게','student_message',d.student_message)+area('직원 내부 메모','internal_note',d.internal_note)+`</div></details></div></div>`,i?.id||'', '<button type="submit" name="intent" value="draft">초안 저장</button><button type="submit" name="intent" value="publish" class="primary">게시하기</button>');
+    return form(i?'알림장 수정':ids.length>1?'반 전체 알림장 작성':'알림장 쓰기','lesson',`<p>${ids.map(name).map(h).join(', ')} · ${h(i?.day||day)} · ${h(i?.body.period||period)}</p><input type="hidden" name="reflection_id" value="${h(own?.id||i?.body.reflection_id||'')}"/><div class="ac-lesson-compose"><aside class="ac-lesson-source"><h3>학생이 쓴 세 줄</h3>${refs.map(r=>`<article><strong>${h(name(r.student_id))}</strong><p class="muted small">${h(r.body.material||'')} ${h(r.body.unit||'')} ${h(r.body.pages||'')}</p><h4>① 공부한 것</h4><p>${h(r.body.learned||'아직 작성하지 않았어요.')}</p><h4>② 숙제</h4><p>${h(r.body.assignment||'아직 작성하지 않았어요.')}</p><h4>③ 성취와 도전</h4><p>${h(r.body.feeling||'아직 작성하지 않았어요.')}</p></article>`).join('')||'<p class="muted">제출된 학생 기록이 없습니다. 선생님이 먼저 작성할 수 있어요.</p>'}</aside><div class="stack ac-lesson-editor">`+
+      input('수업 제목','title',i?.title||'오늘 수업')+lessonChecks(d,ids.length>1)+area('오늘 공부한 내용','content',d.content)+area('오늘의 숙제','assignment',d.assignment)+area('선생님 코멘트 · 학부모님께','parent_message',d.parent_message)+(ids.length>1?bulkStudentChecks(ids):'')+btn('AI 문장 다듬기','polish-form')+`<div class="ac-ai-result"></div><details class="ac-lesson-extra"><summary>교재·진도·추가 메모</summary><div class="stack">`+
+      input('교재','material',d.material)+input('단원','unit',d.unit)+input('학습 과정 (입력하면 진도표에 자동 반영)','course',d.course)+select('진도 구분','track',['현행','선행','복습'].map(x=>[x,x]),d.track||'현행')+area('오늘 알게 된 것','learned',d.learned)+area('학생 소감','feeling',d.feeling)+area('선생님 관찰 키워드','keywords',d.keywords)+area('학생에게','student_message',d.student_message)+area('직원 내부 메모','internal_note',d.internal_note)+`</div></details></div></div>`,i?.id||'', `<button type="submit" name="intent" value="draft">${ids.length>1?'선택 학생 초안 저장':'초안 저장'}</button><button type="submit" name="intent" value="publish" class="primary">${ids.length>1?'선택 학생 게시하기':'게시하기'}</button>`);
   }
   function assessmentBatchForm(){
     const visible=new Set(classLessonStudents().filter(s=>s.period===period).map(s=>s.studentId));
@@ -643,6 +661,14 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
         batchIds.clear();period=p;selected=new Set([sid]);
         const draft=rows('lesson_draft').find(r=>r.student_id===sid&&r.day===day&&r.body.period===p);
         panel=lessonForm(draft,findLessonReflection(items,sid,day,p));
+      }
+      if(a==='pending-bulk-lesson'){
+        if(!staff())return;
+        const [p,teacherIds]=JSON.parse(id);
+        const pending=pendingLessonSessions(lessonStudents(),items,c().state.records||[],day);
+        const group=pendingLessonGroups(pending,c().state.teachers).find(g=>g.period===p)?.teacherGroups.find(g=>JSON.stringify(g.teacherIds)===JSON.stringify(teacherIds));
+        if(!group?.sessions.length)throw new Error('작성 대상이 바뀌었습니다. 목록을 새로고침해주세요.');
+        batchIds.clear();period=p;selected=new Set(group.sessions.map(s=>s.studentId));panel=lessonForm();
       }
       if(a==='bulk-lesson'){if(!selected.size)throw new Error('학생을 먼저 선택해주세요.');panel=lessonForm();}
       if(a==='class-bulk-lesson'){
@@ -811,7 +837,10 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       }
       if(kind==='lesson'){
         if(!['draft','publish'].includes(intent))throw new Error('AI 수정안을 확인한 뒤 초안 저장 또는 게시하기를 선택해주세요.');
-        const ids=old?[old.student_id]:[...selected];if(!ids.length)throw new Error('학생을 선택해주세요.');
+        const bulk=d.bulk_mode==='1';
+        const ids=old?[old.student_id]:bulk?[...new Set(new FormData(f).getAll('lessonStudent'))]:[...selected];
+        if(!ids.length)throw new Error('학생을 한 명 이상 선택해주세요.');
+        if(!old&&ids.some(sid=>!selected.has(sid)))throw new Error('작성 대상 학생을 다시 확인해주세요.');
         const results=[];for(const sid of ids){
           try{
             const lessonDay=old?.day||day, lessonPeriod=old?.body.period||period;
@@ -820,8 +849,10 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
             const attendance=rows('attendance').find(a=>a.student_id===sid&&a.day===lessonDay&&a.body.period===lessonPeriod);
             const linked=old||rows('lesson_draft').find(x=>x.student_id===sid&&x.day===lessonDay&&x.status==='draft'&&(reflection?x.body.reflection_id===reflection.id:x.body.period===lessonPeriod));
             const statusValues=lessonStatusForStudent(d,sid,{attendance:linked?.body.attendance||attendance?.status||'',homework_status:linked?.body.homework_status||'',attitude:linked?.body.attitude||attendance?.body.attitude||''});
-            const common=ids.length===1?d:Object.fromEntries(Object.entries(d).filter(([key,v])=>!key.includes(':')&&String(v).trim()));
-            const body={...reflectionLessonBody(reflection?.body),...linked?.body,...common,...statusValues,period:lessonPeriod,reflection_id:reflection?.id||null,reflection:reflection?.body||null,assessments};
+            const common=!bulk&&ids.length===1?d:Object.fromEntries(Object.entries(d).filter(([key,v])=>!key.includes(':')&&String(v).trim()));
+            const individual=d['individual:'+sid]==='on'?Object.fromEntries(['content','assignment','parent_message'].map(key=>[key,d[key+':'+sid]||''])):{};
+            const lessonBody=bulk?mergeClassLessonBody(common,linked?.body,reflection?.body,individual):{...reflectionLessonBody(reflection?.body),...linked?.body,...common};
+            const body={...lessonBody,...statusValues,period:lessonPeriod,reflection_id:reflection?.id||null,reflection:reflection?.body||null,assessments};
             if(statusValues.attendance||statusValues.attitude){await save({...attendance,id:attendance?.id||requestId('attendance:'+sid+':'+lessonDay+':'+lessonPeriod),kind:'attendance',student_id:sid,day:lessonDay,status:statusValues.attendance||attendance?.status||'unmarked',body:{...attendance?.body,period:lessonPeriod,attitude:statusValues.attitude||attendance?.body.attitude||''}});}
             const saved=await save({...linked,id:linked?.id||requestId('lesson:'+sid+':'+lessonDay+':'+lessonPeriod),kind:'lesson_draft',student_id:sid,title:d.title,day:old?.day||day,status:'draft',audience:'staff',body});
             const plan=rows('class_plan').find(p=>p.student_id===sid&&p.day===saved.day&&p.body.period===lessonPeriod);
@@ -877,7 +908,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   document.addEventListener('submit',submit,true);
   for(const event of ['input','change'])document.addEventListener(event,e=>{
     const master=e.target.closest('[data-ac-bulk-master]');
-    if(master&&event==='change')master.closest('form')?.querySelectorAll(`[data-ac-student-status="${master.dataset.acBulkMaster}"]`).forEach(field=>{field.value=master.value;});
+    if(e.target.matches('[data-ac-student-status]')&&event==='change')e.target.dataset.individuallyChanged='true';
+    if(master&&event==='change')master.closest('form')?.querySelectorAll(`[data-ac-student-status="${master.dataset.acBulkMaster}"]`).forEach(field=>{if(field.dataset.individuallyChanged!=='true')field.value=master.value;});
     const makeup=e.target.closest('[data-ac-form="makeup"]');if(makeup)updateMakeupPicker(makeup);
     const f=e.target.closest('.ac-quick-task');if(f)taskDrafts[f.dataset.shared]=Object.fromEntries(new FormData(f));
   });

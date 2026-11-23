@@ -1283,3 +1283,14 @@ body.family-mobile .mobile-only { display:block; }
   .academy .ac-week span { padding:5px 2px; }
   .academy .ac-day-list { padding-top:8px; margin-top:8px; }
 }
+
+/* Start a shared lesson directly from the time/teacher group on the home screen. */
+.ac-pending-teacher-head { flex-wrap:wrap; gap:6px 10px; }
+.ac-pending-teacher-head > button { margin-left:auto; min-height:36px; padding:6px 10px; }
+.ac-bulk-status-row .ac-bulk-student { display:flex; align-items:center; gap:7px; color:var(--ink); font-weight:700; }
+.ac-bulk-student input[type=checkbox] { width:18px; height:18px; flex:none; }
+.ac-bulk-individual { grid-column:1/-1; border-top:1px solid var(--line); padding-top:6px; }
+.ac-bulk-individual > summary { cursor:pointer; min-height:32px; padding:5px 0; font-size:12px; color:var(--blue); }
+.ac-bulk-individual[open] { display:grid; gap:8px; }
+.ac-bulk-individual[open] > .ac-bulk-student { font-weight:400; }
+.ac-bulk-individual textarea { min-height:64px; }
