@@ -15,7 +15,7 @@ try {
  const state={students,teachers:[{id:'teacher',name:'담당강사',active:true},{id:'other',name:'다른강사',active:true}],schedules:[],academicEvents:[],records:[],periods:[]};
  let records=[{id:'published',kind:'lesson',student_id:'s10',day,status:'published',body:{period:'1700-1830'}},
   {id:'existing',kind:'lesson_draft',student_id:'s2',day,status:'draft',body:{period:'1700-1830',content:'기존 개별 진도',assignment:'기존 개별 과제',parent_message:'기존 개별 코멘트'},updated_at:'version-0'}];
- const writes=[],publishes=[];let serial=0,failStudent='';
+ const writes=[],publishes=[];let serial=0,failStudent='',failPublishStudent='';
  const db={from(table){const query={select:()=>query,eq:()=>query,order:()=>query,range:()=>query,then(resolve){resolve({data:table==='academy_items'?structuredClone(records):[],error:null});}};return query;},async rpc(name,args){
   if(name==='academy_lesson_sessions')return {data:sessions,error:null};
   if(name==='academy_children')return {data:students,error:null};
@@ -26,6 +26,7 @@ try {
    records=records.filter(r=>r.id!==value.id).concat(value);writes.push(value);return {data:value,error:null};
   }
   if(name==='academy_publish'){
+   if(records.find(r=>r.id===args.p_id)?.student_id===failPublishStudent)return {error:{message:'모의 게시 실패'}};
    const item=records.find(r=>r.id===args.p_id);item.status='published';publishes.push(item.student_id);
    records.push({...item,id:'published-'+item.student_id,kind:'lesson'});return {data:item.id,error:null};
   }
@@ -65,7 +66,8 @@ try {
  assert(!drafts.some(r=>['s7','s8','s9','s10'].includes(r.student_id)));
  assert(drafts.every(r=>!Object.keys(r.body).some(k=>k.includes(':')||['bulk_mode','lessonStudent'].includes(k))));
  assert(writes.filter(r=>r.kind==='class_plan'&&r.student_id==='s1').every(r=>r.body.assignment==='개별 심화 5문제'));
- await submit(entries,'publish');assert.equal(publishes.length,7);
+ failPublishStudent='s6';await submit(entries,'publish');assert.equal(publishes.length,6);
+ failPublishStudent='';const beforeRetry=writes.length;await submit(entries,'publish');assert.equal(publishes.length,7);assert.equal(writes.length-beforeRetry,3,'only the failed student attendance, draft and plan are retried');assert(writes.slice(beforeRetry).every(r=>r.student_id==='s6'));
  const before=writes.length;
  const status=await submit(base);assert.match(status.textContent,/한 명 이상/);assert.equal(writes.length,before);
  const outsider=await submit([...base,['lessonStudent','s8']]);assert.match(outsider.textContent,/작성 대상/);assert.equal(writes.length,before);

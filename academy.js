@@ -844,6 +844,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
         const results=[];for(const sid of ids){
           try{
             const lessonDay=old?.day||day, lessonPeriod=old?.body.period||period;
+            if(bulk&&rows('lesson').some(x=>x.student_id===sid&&x.day===lessonDay&&x.body.period===lessonPeriod&&x.status==='published')){results.push(`${name(sid)}: 이미 게시됨 · 건너뜀`);continue;}
             const reflection=findLessonReflection(items,sid,lessonDay,lessonPeriod,d.reflection_id||old?.body.reflection_id);
             const assessments=rows('assessment').filter(r=>r.student_id===sid&&r.day===lessonDay).map(r=>`${r.title}: ${r.body.score}/${r.body.total} (${r.body.percent}%)`).join('\n');
             const attendance=rows('attendance').find(a=>a.student_id===sid&&a.day===lessonDay&&a.body.period===lessonPeriod);
@@ -864,7 +865,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
             if(intent==='publish'){const {error}=await db.rpc('academy_publish',{p_id:saved.id,p_expected:saved.updated_at});if(error)throw error;}
             results.push(`${name(sid)}: ${intent==='draft'?'저장':'게시'} 완료`);
           }catch(err){results.push(`${name(sid)}: 실패 — ${err.message}`);}
-        }alert(results.join('\n'));if(results.some(t=>t.includes('실패')))throw new Error('실패한 학생을 확인해주세요. 저장된 초안은 유지됩니다.');
+        }alert(results.join('\n'));if(results.some(t=>t.includes('실패'))){await load();throw new Error('실패한 학생을 확인해주세요. 저장된 초안은 유지되며, 다시 게시하면 완료된 학생은 건너뜁니다.');}
       }
       if(kind==='family'){
         const ids=[...f.elements.children.selectedOptions].map(o=>o.value);if(!ids.length&&!d.parentId)throw new Error('자녀를 선택해주세요.');
