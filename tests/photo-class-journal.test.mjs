@@ -1,3 +1,4 @@
+import {journalImageError} from '../photo-journal.js';
 import assert from 'node:assert/strict';
 import {matchPhotoStudent,photoRowError,savePhotoRow} from '../photo-class-journal.js';
 const students=[{id:'a',name:'김하늘'},{id:'b',name:'이별'},{id:'c',name:'이별'}];
@@ -16,3 +17,10 @@ prior=[];fail=true;await assert.rejects(savePhotoRow(db,row,'2026-11-24'),/retry
 assert.equal((await savePhotoRow(db,row,'2026-11-24')).done,true);assert.equal(saved.length,2);
 console.log('PASS: exact/ambiguous name matching, session validation, duplicate rows, draft-only saves, existing journal protection and retry');
 prior=[];const count=saved.length;await assert.rejects(savePhotoRow(db,row,'2026-11-24',()=>false),/로그인/);assert.equal(saved.length,count);
+
+assert.equal(journalImageError({name:'camera.jpg',type:'',size:1000}),'');
+assert.equal(journalImageError({name:'photo.heic',type:'image/heic',size:1000}),'');
+assert.match(journalImageError({name:'paper.pdf',type:'application/pdf',size:1000}),/사진 파일/);
+assert.match(journalImageError({name:'fake.jpg',type:'application/pdf',size:1000}),/사진 파일/);
+assert.match(journalImageError({name:'large.jpg',type:'image/jpeg',size:20*1024*1024+1}),/20MB/);
+console.log('PASS: generic file picker image validation, missing provider MIME, non-image rejection and size limit');

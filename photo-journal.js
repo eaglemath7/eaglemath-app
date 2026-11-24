@@ -2,8 +2,14 @@ const fields = { material: '교재', unit: '단원·진도', content: '오늘 �
 export function photoJournalControls() {
   return `<section class="panel stack" data-photo-journal><strong>사진으로 알림장 쓰기</strong><p class="muted small">교재나 수업 기록을 찍으면 AI가 초안을 만들어요. 한 학생의 기록만 올려주세요. 최대 3장.</p><div class="toolbar"><label>📷 사진 찍어 알림장 쓰기<input type="file" accept="image/*" capture="environment" data-journal-camera /></label><label>앨범에서 고르기<input type="file" accept="image/*" multiple data-journal-camera /></label></div><p role="status" aria-live="polite" data-photo-status></p><div class="stack" data-photo-preview></div><button type="button" data-photo-apply hidden>초안을 입력칸에 적용</button><small>적용하면 해당 입력칸의 기존 내용이 바뀝니다. 확인·수정 후 게시해주세요.</small></section>`;
 }
+export function journalImageError(file) {
+  const photo=file.type?.startsWith('image/') || (!file.type && /\.(jpe?g|png|webp|heic|heif|gif|bmp|avif)$/i.test(file.name||''));
+  if (!photo) return '사진 파일만 선택해주세요. PDF·문서 파일은 아직 지원하지 않습니다.';
+  if (file.size > 20 * 1024 * 1024) return '사진 한 장당 20MB 이하로 선택해주세요.';
+  return '';
+}
 export async function prepareJournalImage(file) {
-  if (!file.type.startsWith('image/') || file.size > 20 * 1024 * 1024) throw new Error('20MB 이하 사진을 골라주세요.');
+  const error=journalImageError(file); if(error) throw new Error(error);
   const url = URL.createObjectURL(file);
   try {
     const img = new Image(); img.src = url; await img.decode();

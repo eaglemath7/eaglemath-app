@@ -1349,3 +1349,7 @@ body.family-mobile .mobile-only { display:block; }
 .ac-photo-footer{position:sticky;bottom:-24px;background:white;border-top:1px solid #dbe2ec;padding:12px 0;display:flex;flex-direction:column;gap:8px}
 .ac-photo-footer small{font-size:12px;color:#667085}
 @media(max-width:480px){.ac-photo-class{padding:12px}.ac-photo-class h2{font-size:18px}.ac-photo-match{grid-template-columns:1fr}.ac-photo-footer{bottom:-12px}.ac-photo-pick{flex:1;min-width:0}.ac-photo-pick input{width:100%}}
+
+.ac-photo-sources{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.ac-photo-sources .ac-photo-pick{min-width:0;padding:10px 5px;font-size:13px}
+@media(max-width:360px){.ac-photo-sources{grid-template-columns:1fr}.ac-photo-sources .ac-photo-pick{justify-content:flex-start;padding:10px 12px}}
