@@ -286,8 +286,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const values=pendingStatusValues(row.studentId,session.period),changed=pendingStatusEdits.has(statusKey(row.studentId,session.period));
     return '<div class="ac-roster-status-line">'+(row.sessions.length>1?'<small>'+h(lessonTime(session.period))+'</small>':'')+Object.entries(values).map(([key,value])=>{
       const label=rosterStatusLabel(key,value),normal=value===({attendance:'present',homework_status:'완료',attitude:'좋음'})[key];
-      return '<button type="button" class="ac-roster-status '+(normal?'is-normal':'is-exception')+'" data-ac="pending-status" data-id="'+h(JSON.stringify([row.studentId,session.period,key]))+'" aria-label="'+h(name(row.studentId)+' '+lessonTime(session.period)+' '+label+' · 눌러 변경')+'">'+h(label)+'</button>';
-    }).join('')+(changed?'<small class="ac-roster-unsaved">변경됨</small>':'')+'</div>';
+      return '<button type="button" class="ac-roster-status '+(normal?'is-normal':value===({attendance:'late',homework_status:'일부',attitude:'보통'})[key]?'is-middle':'is-bad')+'" data-ac="pending-status" data-id="'+h(JSON.stringify([row.studentId,session.period,key]))+'" aria-label="'+h(name(row.studentId)+' '+lessonTime(session.period)+' '+label+' · 눌러 변경')+'">'+h(label)+'</button>';
+    }).join('')+(changed?'<small class="ac-roster-unsaved" title="변경됨 · 저장 전" aria-label="변경됨 · 저장 전">●</small>':'')+'</div>';
   }).join('')+'</div>';}
   async function savePendingStatusRows(){
     if(!staff())return;

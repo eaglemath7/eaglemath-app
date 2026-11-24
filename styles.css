@@ -1364,13 +1364,30 @@ body.family-mobile .mobile-only { display:block; }
 .ac-roster-statuses{min-width:0;display:grid;gap:4px}
 .ac-roster-status-line{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 .academy button.ac-roster-status{min-height:34px;padding:4px 7px;font-size:11px;line-height:1.25;white-space:nowrap;border-radius:7px;font-weight:600}
-.ac-roster-status.is-normal{color:#17633b;background:#effaf3;border-color:#bfe4ca}
-.ac-roster-status.is-exception{color:#93420a;background:#fff3e2;border-color:#f2c68e}
+.ac-roster-status.is-normal{color:#164a9b;background:#eaf2ff;border-color:#a9c9fb}
+.ac-roster-status.is-middle{color:#874300;background:#fff3df;border-color:#e7bc73}
+.ac-roster-status.is-bad{color:#a21b28;background:#fff0f1;border-color:#ef9ca5}
 .ac-roster-unsaved{font-size:10px;color:#a05400}
+
+/* Keep every student and status control on one line at all widths. */
+.ac-pending-roster{overflow-x:auto;overscroll-behavior-x:contain}
+.ac-pending-row{grid-template-columns:minmax(76px,1fr) max-content max-content 32px;min-width:max-content;min-height:42px;gap:6px;padding:3px 6px}
+.ac-pending-name,.ac-pending-meta,.ac-roster-statuses,.ac-roster-status-line{flex-wrap:nowrap;white-space:nowrap}
+.ac-pending-name strong{white-space:nowrap;overflow-wrap:normal}
+.ac-pending-meta{flex-direction:row;align-items:center;gap:4px}
+.ac-pending-period,.ac-pending-owner{white-space:nowrap;overflow-wrap:normal;font-size:10px}
+.ac-roster-statuses{display:flex;gap:6px;grid-column:auto;grid-row:auto}
+.ac-roster-status-line{gap:3px}
+.ac-pending-write{grid-column:auto;grid-row:auto}
+.ac-roster-unsaved{font-size:9px}
 @media(max-width:650px){
- .ac-pending-row{grid-template-columns:minmax(90px,1fr) minmax(110px,1fr) 36px;gap:2px 6px;padding:5px 7px}
- .ac-roster-statuses{grid-column:1/3;grid-row:2}
- .ac-pending-write{grid-column:3;grid-row:1/3}
- .ac-roster-status-line{gap:5px}
- .ac-roster-status-line>small:first-child:not(.ac-roster-unsaved){width:100%;font-size:10px}
+ .ac-pending-row{grid-template-columns:minmax(68px,1fr) max-content max-content 28px;gap:4px;padding:3px 5px}
+ .ac-pending-name{gap:4px}
+ .ac-pending-name strong{font-size:12px}
+ .ac-pending-name small{font-size:9px}
+ .ac-pending-meta{flex-direction:row;align-items:center;gap:3px}
+ .ac-pending-period{font-size:9px;padding:2px 3px}
+ .ac-pending-owner{font-size:9px}
+ .academy button.ac-roster-status{font-size:10px;min-height:32px;padding:3px 4px}
+ .academy button.ac-pending-write{font-size:11px}
 }
