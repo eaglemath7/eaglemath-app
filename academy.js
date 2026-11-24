@@ -1,3 +1,4 @@
+import { rosterStatusValues, nextRosterStatus, rosterStatusLabel } from './roster-status.js?v=1';
 import { createPhotoClassJournal } from './photo-class-journal.js?v=4';
 import { homeworkOverview, parentConversation, previousHomework } from './journal-workflow.js?v=1';
 import { lessonTime } from './lesson-time.js?v=1';
@@ -129,6 +130,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   let items = [], children = [], points = [], ready = false, problem = '', loadedFor = '', panel = '', busy = false;
   let classTeacher = '';
   let pendingTeacher='',pendingPeriod='',pendingSelection=new Set(),pendingTargets=null;
+  const pendingStatusEdits=new Map();
+  let pendingStatusMessage='';
   let selected = new Set(), day = date(), period = '', student = '', month = date().slice(0,7), rankMonths=1, rankStart='',rankEnd='', rankings=[];
   let journalDay=date(),journalMonth=date().slice(0,7),reflectionDay=date(),reflectionSessions=[];
   const parentCommentDrafts=new Map();
@@ -273,6 +276,38 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   function pendingRows(){
     return compactPendingStudents(pendingLessonSessions(lessonStudents(),items,c().state.records||[],day),c().state.students,c().state.teachers,{teacher:pendingTeacher,period:pendingPeriod});
   }
+  const statusKey=(id,p,d=day)=>JSON.stringify([d,id,p]);
+  function pendingStatusValues(id,p,d=day){
+    const draft=rows('lesson_draft').find(i=>i.student_id===id&&i.day===d&&i.body.period===p);
+    const attendance=rows('attendance').find(i=>i.student_id===id&&i.day===d&&i.body.period===p);
+    return {...rosterStatusValues(draft?.body,attendance),...pendingStatusEdits.get(statusKey(id,p,d))};
+  }
+  function pendingStatusControls(row){return '<div class="ac-roster-statuses">'+row.sessions.map(session=>{
+    const values=pendingStatusValues(row.studentId,session.period),changed=pendingStatusEdits.has(statusKey(row.studentId,session.period));
+    return '<div class="ac-roster-status-line">'+(row.sessions.length>1?'<small>'+h(lessonTime(session.period))+'</small>':'')+Object.entries(values).map(([key,value])=>{
+      const label=rosterStatusLabel(key,value),normal=value===({attendance:'present',homework_status:'완료',attitude:'좋음'})[key];
+      return '<button type="button" class="ac-roster-status '+(normal?'is-normal':'is-exception')+'" data-ac="pending-status" data-id="'+h(JSON.stringify([row.studentId,session.period,key]))+'" aria-label="'+h(name(row.studentId)+' '+lessonTime(session.period)+' '+label+' · 눌러 변경')+'">'+h(label)+'</button>';
+    }).join('')+(changed?'<small class="ac-roster-unsaved">변경됨</small>':'')+'</div>';
+  }).join('')+'</div>';}
+  async function savePendingStatusRows(){
+    if(!staff())return;
+    const targets=pendingRows().flatMap(row=>row.sessions.map(s=>({id:row.studentId,period:s.period,values:pendingStatusValues(row.studentId,s.period)})));
+    if(!targets.length)return;
+    const forDay=day,forUser=uid();busy=true;pendingStatusMessage='상태를 저장하는 중…';refresh();let done=0;const errors=[];
+    try{for(const target of targets){
+      if(uid()!==forUser)break;
+      const {id,period:p,values}=target,key=statusKey(id,p,forDay);
+      try{
+        const existing=rows('attendance').find(i=>i.student_id===id&&i.day===forDay&&i.body.period===p);
+        await save({...existing,id:existing?.id||requestId('attendance:'+id+':'+forDay+':'+p),kind:'attendance',student_id:id,day:forDay,status:values.attendance,body:{...existing?.body,period:p,attitude:values.attitude,homework_status:values.homework_status}});
+        const draft=rows('lesson_draft').find(i=>i.student_id===id&&i.day===forDay&&i.body.period===p&&i.status==='draft');
+        if(draft)await save({...draft,body:{...draft.body,...values}});
+        pendingStatusEdits.delete(key);done++;
+      }catch(err){pendingStatusEdits.set(key,values);errors.push(name(id)+': '+err.message);}
+    }
+    if(uid()===forUser)pendingStatusMessage=done+'건 상태 저장 완료'+(errors.length?' · 실패 '+errors.length+'건: '+errors.join(' / '):' · 알림장 게시는 별도입니다.');
+    }finally{busy=false;refresh();}
+  }
   function openPendingSelection(ids){
     const chosen=pendingRows().filter(row=>ids.has(row.studentId));
     if(!chosen.length)throw new Error('학생을 한 명 이상 선택해주세요.');
@@ -286,9 +321,9 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const sessions=pendingLessonSessions(lessonStudents(),items,c().state.records||[],day),list=pendingRows();
     const teacherIds=[...new Set(sessions.flatMap(s=>s.teacherIds||[]))];
     const periods=[...new Set(sessions.map(s=>s.period))];
-    return `<section class="panel ac-pending-lessons ac-pending-compact"><div class="between"><h3>📝 알림장 작성할 학생 <span class="badge">${new Set(sessions.map(s=>s.studentId)).size}명</span></h3><small>${h(day)}</small></div><div class="ac-pending-tools">${['admin','deputy','teacher'].includes(c().session?.role)?btn('📷 종이 일지 사진','photo-class'):''}<select data-pending-teacher aria-label="담당 선생님 선택">${opts([['','선생님 전체'],...teacherIds.map(id=>[id,teacher(id)]),['unassigned','담당 미배정']],pendingTeacher)}</select><select data-pending-period aria-label="수업시간 선택">${opts([['','시간 전체'],...periods.map(p=>[p,lessonTime(p)])],pendingPeriod)}</select>${btn(`전체 선택 (${list.length})`,'pending-select-all')}${pendingSelection.size?btn('선택 해제','pending-select-clear'):''}<button type="button" class="primary" data-ac="pending-selected-lesson" ${pendingSelection.size?'':'disabled'}>선택한 ${pendingSelection.size}명 일괄 작성</button></div><div class="ac-pending-roster">${list.map(row=>{
+    return `<section class="panel ac-pending-lessons ac-pending-compact"><div class="between"><h3>📝 알림장 작성할 학생 <span class="badge">${new Set(sessions.map(s=>s.studentId)).size}명</span></h3><small>${h(day)}</small></div><div class="ac-pending-tools">${['admin','deputy','teacher'].includes(c().session?.role)?btn('📷 종이 일지 사진','photo-class'):''}<select data-pending-teacher aria-label="담당 선생님 선택">${opts([['','선생님 전체'],...teacherIds.map(id=>[id,teacher(id)]),['unassigned','담당 미배정']],pendingTeacher)}</select><select data-pending-period aria-label="수업시간 선택">${opts([['','시간 전체'],...periods.map(p=>[p,lessonTime(p)])],pendingPeriod)}</select>${btn(`전체 선택 (${list.length})`,'pending-select-all')}${pendingSelection.size?btn('선택 해제','pending-select-clear'):''}<button type="button" class="primary" data-ac="pending-selected-lesson" ${pendingSelection.size?'':'disabled'}>선택한 ${pendingSelection.size}명 일괄 작성</button></div><div class="ac-roster-status-toolbar"><small>기본: 출석 · 과제 완료 · 집중 좋음 / 누르면 변경</small><button type="button" data-ac="pending-status-save" class="primary" ${busy||!list.length?'disabled':''}>표시된 ${list.length}명 상태 저장</button></div><p class="ac-roster-save-status" role="status">${h(pendingStatusMessage||'확인 후 상태 저장을 눌러주세요.')}</p><div class="ac-pending-roster">${list.map(row=>{
       const checked=pendingSelection.has(row.studentId),draft=rows('lesson_draft').some(i=>i.student_id===row.studentId&&i.day===day&&row.periods.includes(i.body.period));
-      return `<div class="ac-pending-row ${checked?'is-selected':''}"><label class="ac-pending-name"><input type="checkbox" data-pending-select="${h(row.studentId)}" aria-label="${h(name(row.studentId))} 선택" ${checked?'checked':''}/><strong>${h(name(row.studentId))}</strong><small>${h(row.student?.schoolYear||'')}</small></label><div class="ac-pending-meta"><span class="ac-pending-period">${row.periods.map(p=>h(lessonTime(p))).join(' · ')}</span><small class="ac-pending-owner">${h(row.teacherNames.join(' · ')||'미배정')}</small></div>${btn(draft?'이어서':'작성','pending-student-lesson',row.studentId,'ac-pending-write')}</div>`;
+      return `<div class="ac-pending-row ${checked?'is-selected':''}"><label class="ac-pending-name"><input type="checkbox" data-pending-select="${h(row.studentId)}" aria-label="${h(name(row.studentId))} 선택" ${checked?'checked':''}/><strong>${h(name(row.studentId))}</strong><small>${h(row.student?.schoolYear||'')}</small></label><div class="ac-pending-meta"><span class="ac-pending-period">${row.periods.map(p=>h(lessonTime(p))).join(' · ')}</span><small class="ac-pending-owner">${h(row.teacherNames.join(' · ')||'미배정')}</small></div>${pendingStatusControls(row)}${btn(draft?'이어서':'작성','pending-student-lesson',row.studentId,'ac-pending-write')}</div>`;
     }).join('')||empty(sessions.length?'필터에 맞는 학생이 없습니다.':'배정된 수업 중 작성할 알림장이 없습니다.')}</div></section>`;
   }
   // 이 학생 기록으로 만든 일지가 이미 게시됐는지 (게시된 기록은 일괄 작성 대상에서 제외)
@@ -374,7 +409,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   }
   const attendanceOptions=[['','선택 / 기존 유지'],['present','출석'],['late','지각'],['absent','결석']];
   const homeworkStatusOptions=[['','선택 / 기존 유지'],['완료','완료'],['일부','일부'],['미완료','미완료']];
-  const attitudeOptions=[['','선택 / 기존 유지'],['좋음','좋음'],['보통','보통'],['집중 도움 필요','집중 도움 필요']];
+  const attitudeOptions=[['','선택 / 기존 유지'],['좋음','좋음'],['보통','보통'],['집중 필요','집중 필요']];
   function statusSelect(label,key,list,value='',attrs=''){
     return `<label>${label}<select name="${h(key)}" ${attrs}>${opts(list,value)}</select></label>`;
   }
@@ -387,7 +422,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
       const targetPeriod=pendingTargets?.find(t=>t.studentId===id)?.period||period;
       const att=rows('attendance').find(x=>x.student_id===id&&x.day===day&&x.body.period===targetPeriod);
       const draft=rows('lesson_draft').find(x=>x.student_id===id&&x.day===day&&x.body.period===targetPeriod);
-      const d=pendingTargets?.filter(t=>t.studentId===id).length>1?{}:{attendance:att?.status||draft?.body.attendance||'',homework_status:draft?.body.homework_status||'',attitude:att?.body.attitude||draft?.body.attitude||''};
+      const d=pendingTargets?.filter(t=>t.studentId===id).length>1?{}:pendingStatusValues(id,targetPeriod);
       return `<div class="ac-bulk-status-row"><label class="ac-bulk-student"><input type="checkbox" name="lessonStudent" value="${h(id)}" checked/>${h(name(id))}</label>${statusSelect('출석',`attendance:${id}`,attendanceOptions,d.attendance,`data-ac-student-status="attendance"`)}${statusSelect('과제수행도',`homework_status:${id}`,homeworkStatusOptions,d.homework_status,`data-ac-student-status="homework_status"`)}${statusSelect('수업집중도',`attitude:${id}`,attitudeOptions,d.attitude,`data-ac-student-status="attitude"`)}<details class="ac-bulk-individual"><summary>${h(name(id))} 개별 내용${draft?' · 기존 초안 있음':''}</summary><label class="ac-bulk-student"><input type="checkbox" name="individual:${h(id)}"/>이 학생은 입력한 개별 내용만 적용</label>${area('개별 수업 내용',`content:${id}`,draft?.body.content||'')}${area('개별 과제',`assignment:${id}`,draft?.body.assignment||'')}${area('개별 학부모 코멘트',`parent_message:${id}`,draft?.body.parent_message||'')}</details></div>`;
     }).join('')}</div></details>`;
   }
@@ -533,7 +568,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     const ids=i?[i.student_id]:[...selected],bulk=ids.length>1||pendingTargets?.length>1;
     const refs=pendingTargets?pendingTargets.map(t=>findLessonReflection(items,t.studentId,day,t.period)).filter(Boolean):ids.map(id=>findLessonReflection(items,id,i?.day||day,i?.body.period||period,source?.id||i?.body.reflection_id)).filter(Boolean);
     const own=source||(!bulk&&ids.length===1?refs[0]:null);
-    const d={...reflectionLessonBody(own?.body),...i?.body};
+    const d={...reflectionLessonBody(own?.body),...i?.body,...(!bulk&&ids.length===1?pendingStatusValues(ids[0],i?.body.period||period,i?.day||day):{})};
     return form(i?'알림장 수정':bulk?'반 전체 알림장 작성':'알림장 쓰기','lesson',`<p>${ids.map(name).map(h).join(', ')} · ${h(i?.day||day)} · ${h(pendingTargets?[...new Set(pendingTargets.map(t=>lessonTime(t.period)))].join(' · '):i?.body.period||period)}</p><input type="hidden" name="reflection_id" value="${h(own?.id||i?.body.reflection_id||'')}"/><div class="ac-lesson-compose"><${bulk?'details':'aside'} class="ac-lesson-source">${bulk?`<summary>학생이 쓴 세 줄 ${refs.length}건 보기</summary>`:'<h3>학생이 쓴 세 줄</h3>'}${refs.map(r=>`<article><strong>${h(name(r.student_id))}</strong><p class="muted small">${h(r.body.material||'')} ${h(r.body.unit||'')} ${h(r.body.pages||'')}</p><h4>① 공부한 것</h4><p>${h(r.body.learned||'아직 작성하지 않았어요.')}</p><h4>② 숙제</h4><p>${h(r.body.assignment||'아직 작성하지 않았어요.')}</p><h4>③ 성취와 도전</h4><p>${h(r.body.feeling||'아직 작성하지 않았어요.')}</p></article>`).join('')||'<p class="muted">제출된 학생 기록이 없습니다. 선생님이 먼저 작성할 수 있어요.</p>'}</${bulk?'details':'aside'}><div class="stack ac-lesson-editor">`+
       input('수업 제목','title',i?.title||'오늘 수업')+(bulk?'':lessonChecks(d))+area('오늘 공부한 내용','content',d.content)+area('오늘의 숙제','assignment',d.assignment)+area('선생님 코멘트 · 학부모님께','parent_message',d.parent_message)+(bulk?`<details class="ac-bulk-status"><summary>출석 · 수행도 · 집중도 일괄 설정</summary>${lessonChecks(d,true)}</details>`+bulkStudentChecks(ids):'')+btn('AI 문장 다듬기','polish-form')+`<div class="ac-ai-result"></div><details class="ac-lesson-extra"><summary>교재·진도·추가 메모</summary><div class="stack">`+
       input('교재','material',d.material)+input('단원','unit',d.unit)+input('학습 과정 (입력하면 진도표에 자동 반영)','course',d.course)+select('진도 구분','track',['현행','선행','복습'].map(x=>[x,x]),d.track||'현행')+area('오늘 알게 된 것','learned',d.learned)+area('학생 소감','feeling',d.feeling)+area('선생님 관찰 키워드','keywords',d.keywords)+area('학생에게','student_message',d.student_message)+area('직원 내부 메모','internal_note',d.internal_note)+`</div></details></div></div>`,i?.id||'', `<button type="submit" name="intent" value="draft">${bulk?'선택 학생 초안 저장':'초안 저장'}</button><button type="submit" name="intent" value="publish" class="primary">${bulk?'선택 학생 게시하기':'게시하기'}</button>`);
@@ -604,6 +639,12 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     if(['pending-lesson','pending-bulk-lesson','pending-selected-lesson','pending-student-lesson','bulk-lesson','class-bulk-lesson','edit-lesson','reflection-lesson'].includes(a))pendingTargets=null;
     try{
       if(a==='photo-class'){if(!['admin','deputy','teacher'].includes(c().session?.role))return;panel='photo-class';await photoClass.open(day);return;}
+      if(a==='pending-status'){
+        if(!staff())return;const [sid,p,key]=JSON.parse(id),row=pendingRows().find(r=>r.studentId===sid&&r.sessions.some(s=>s.period===p));
+        if(!row||!['attendance','homework_status','attitude'].includes(key))return;
+        const values=pendingStatusValues(sid,p);values[key]=nextRosterStatus(key,values[key]);pendingStatusEdits.set(statusKey(sid,p),values);pendingStatusMessage='상태 변경은 아직 저장되지 않았습니다.';refresh();return;
+      }
+      if(a==='pending-status-save'){await savePendingStatusRows();return;}
       if(a==='pending-select-all'){pendingRows().forEach(row=>pendingSelection.add(row.studentId));refresh();return;}
       if(a==='pending-select-clear'){pendingSelection.clear();refresh();return;}
       if(a==='pending-selected-lesson'){openPendingSelection(pendingSelection);refresh();return;}
@@ -888,12 +929,12 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
             const assessments=rows('assessment').filter(r=>r.student_id===sid&&r.day===lessonDay).map(r=>`${r.title}: ${r.body.score}/${r.body.total} (${r.body.percent}%)`).join('\n');
             const attendance=rows('attendance').find(a=>a.student_id===sid&&a.day===lessonDay&&a.body.period===lessonPeriod);
             const linked=old||rows('lesson_draft').find(x=>x.student_id===sid&&x.day===lessonDay&&x.status==='draft'&&(reflection?x.body.reflection_id===reflection.id:x.body.period===lessonPeriod));
-            const statusValues=lessonStatusForStudent(d,sid,{attendance:linked?.body.attendance||attendance?.status||'',homework_status:linked?.body.homework_status||'',attitude:linked?.body.attitude||attendance?.body.attitude||''});
+            const statusValues=lessonStatusForStudent(d,sid,pendingStatusValues(sid,lessonPeriod,lessonDay));
             const common=!bulk&&ids.length===1?d:Object.fromEntries(Object.entries(d).filter(([key,v])=>!key.includes(':')&&String(v).trim()));
             const individual=d['individual:'+sid]==='on'?Object.fromEntries(['content','assignment','parent_message'].map(key=>[key,d[key+':'+sid]||'']).filter(([,value])=>value.trim())):{};
             const lessonBody=bulk?mergeClassLessonBody(common,linked?.body,reflection?.body,individual):{...reflectionLessonBody(reflection?.body),...linked?.body,...common};
             const body={...lessonBody,...statusValues,period:lessonPeriod,reflection_id:reflection?.id||null,reflection:reflection?.body||null,assessments};
-            if(statusValues.attendance||statusValues.attitude){await save({...attendance,id:attendance?.id||requestId('attendance:'+sid+':'+lessonDay+':'+lessonPeriod),kind:'attendance',student_id:sid,day:lessonDay,status:statusValues.attendance||attendance?.status||'unmarked',body:{...attendance?.body,period:lessonPeriod,attitude:statusValues.attitude||attendance?.body.attitude||''}});}
+            if(statusValues.attendance||statusValues.attitude){await save({...attendance,id:attendance?.id||requestId('attendance:'+sid+':'+lessonDay+':'+lessonPeriod),kind:'attendance',student_id:sid,day:lessonDay,status:statusValues.attendance||attendance?.status||'unmarked',body:{...attendance?.body,period:lessonPeriod,attitude:statusValues.attitude||attendance?.body.attitude||'',homework_status:statusValues.homework_status||attendance?.body.homework_status||''}});}
             const saved=await save({...linked,id:linked?.id||requestId('lesson:'+sid+':'+lessonDay+':'+lessonPeriod),kind:'lesson_draft',student_id:sid,title:d.title,day:old?.day||day,status:'draft',audience:'staff',body});
             const plan=rows('class_plan').find(p=>p.student_id===sid&&p.day===saved.day&&p.body.period===lessonPeriod);
             await save({...plan,id:plan?.id||requestId('plan:'+sid+':'+saved.day+':'+lessonPeriod),kind:'class_plan',student_id:sid,title:d.title,day:saved.day,status:'shared',body:{period:lessonPeriod,material:body.material,unit:body.unit,content:body.content,assignment:body.assignment}});
@@ -902,7 +943,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
               await save({...progress,id:progress?.id||requestId('progress:'+sid),kind:'progress',student_id:sid,title:d.material,day:saved.day,status:'active',body:{...progress?.body,course:d.course,track:d.track,unit:d.unit,stage:progress?.body.stage||'학습 중'}});
             }
             if(intent==='publish'){const {error}=await db.rpc('academy_publish',{p_id:saved.id,p_expected:saved.updated_at});if(error)throw error;}
-            results.push(`${name(sid)}: ${intent==='draft'?'저장':'게시'} 완료`);
+            pendingStatusEdits.delete(statusKey(sid,lessonPeriod,lessonDay));results.push(`${name(sid)}: ${intent==='draft'?'저장':'게시'} 완료`);
           }catch(err){results.push(`${name(sid)}: 실패 — ${err.message}`);}
         }alert(results.join('\n'));if(results.some(t=>t.includes('실패'))){await load();throw new Error('실패한 학생을 확인해주세요. 저장된 초안은 유지되며, 다시 게시하면 완료된 학생은 건너뜁니다.');}
       }
@@ -957,8 +998,8 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     if(e.target.matches('.ac-quick-task textarea')&&e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();e.target.form.requestSubmit();}
   });
   document.addEventListener('change',e=>{
-    if(e.target.matches('[data-pending-teacher]')){pendingTeacher=e.target.value;pendingSelection.clear();refresh();return;}
-    if(e.target.matches('[data-pending-period]')){pendingPeriod=e.target.value;pendingSelection.clear();refresh();return;}
+    if(e.target.matches('[data-pending-teacher]')){pendingStatusMessage='';pendingTeacher=e.target.value;pendingSelection.clear();refresh();return;}
+    if(e.target.matches('[data-pending-period]')){pendingStatusMessage='';pendingPeriod=e.target.value;pendingSelection.clear();refresh();return;}
     if(e.target.matches('[data-pending-select]')){const id=e.target.dataset.pendingSelect;if(!pendingRows().some(row=>row.studentId===id))return;e.target.checked?pendingSelection.add(id):pendingSelection.delete(id);refresh();return;}
     if(e.target.matches('[data-reflection-select]')){e.target.checked?reflectionSelection.add(e.target.dataset.reflectionSelect):reflectionSelection.delete(e.target.dataset.reflectionSelect);refresh();}
     if(e.target.matches('[data-comment-filter]')){commentFilter=e.target.value;refresh();}
@@ -966,7 +1007,7 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
     if(e.target.matches('[data-ac-select]')){e.target.checked?selected.add(e.target.dataset.acSelect):selected.delete(e.target.dataset.acSelect);refresh();}
     if(e.target.matches('[data-ac-class-teacher]')&&admin()){classTeacher=e.target.value;period='';selected.clear();batchIds.clear();refresh();}
     if(e.target.matches('[data-ac-custom-due]')){const el=e.target.closest('label').querySelector('input[type="datetime-local"]');el.disabled=!e.target.checked;el.hidden=!e.target.checked;el.required=e.target.checked;}
-    if(e.target.matches('[data-ac-date]')){day=e.target.value;selected.clear();pendingSelection.clear();pendingTargets=null;load().then(refresh);}
+    if(e.target.matches('[data-ac-date]')){pendingStatusMessage='';day=e.target.value;selected.clear();pendingSelection.clear();pendingTargets=null;load().then(refresh);}
     if(e.target.matches('[data-ac-student]')){student=e.target.value;refresh();}
     if(e.target.matches('[data-ac-rank]')){rankMonths=Number(e.target.value);rankStart='';rankEnd='';rank().then(refresh).catch(err=>alert(err.message));}
     if(e.target.matches('[data-ac-rank-start]'))rankStart=e.target.value;
@@ -979,5 +1020,5 @@ export function createAcademy({ db, context, refresh, legacyHome, legacyStudent,
   // Refresh without interrupting forms or selecting students.
   const canAutoRefresh=()=>uid()&&document.visibilityState==='visible'&&!c().modalOpen&&!panel&&!busy&&!draggingTask&&!selected.size&&!pendingSelection.size&&!reflectionSelection.size&&!document.activeElement?.closest('form')&&!document.querySelector('[data-ac-form="school-scores"]');
   setInterval(()=>{if(canAutoRefresh())load().then(()=>{if(canAutoRefresh())refresh();});},30000);
-  return {render,load,doubleCheckCount:()=>staff()?doubleCheckSources().filter(i=>!sourceDone(i)).length:0,currentChildName:()=>allStudents().find(s=>s.id===current())?.name||'',reset(){photoClass.reset();pendingTeacher='';pendingPeriod='';pendingSelection.clear();pendingTargets=null;classTeacher='';requiredReviews=[];requiredReviewsReady=false;parentCommentDrafts.clear();reflectionDay=date();reflectionSessions=[];clearTimeout(draftTimer);journalDay=date();journalMonth=journalDay.slice(0,7);clearTaskDrag();commentReviews=[];commentNotifications=[];commentsReady=false;addedGrades.clear();items=[];children=[];points=[];loadedFor='';panel='';selected.clear();reflectionSelection.clear();reflectionBatch=[];lessonSessions=[];sessionDay='';student='';period='';}};
+  return {render,load,doubleCheckCount:()=>staff()?doubleCheckSources().filter(i=>!sourceDone(i)).length:0,currentChildName:()=>allStudents().find(s=>s.id===current())?.name||'',reset(){pendingStatusEdits.clear();pendingStatusMessage='';photoClass.reset();pendingTeacher='';pendingPeriod='';pendingSelection.clear();pendingTargets=null;classTeacher='';requiredReviews=[];requiredReviewsReady=false;parentCommentDrafts.clear();reflectionDay=date();reflectionSessions=[];clearTimeout(draftTimer);journalDay=date();journalMonth=journalDay.slice(0,7);clearTaskDrag();commentReviews=[];commentNotifications=[];commentsReady=false;addedGrades.clear();items=[];children=[];points=[];loadedFor='';panel='';selected.clear();reflectionSelection.clear();reflectionBatch=[];lessonSessions=[];sessionDay='';student='';period='';}};
 }
